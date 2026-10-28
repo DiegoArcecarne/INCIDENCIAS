@@ -27,9 +27,10 @@ Sin terminal: todo se hace copiando y pegando en el navegador.
 
 ## 4. Preparar la hoja y dar permisos
 
-1. En el editor, elige la función `prepararHoja` en el desplegable de arriba y pulsa **Ejecutar**.
+1. En el editor, elige la función `prepararTodo` en el desplegable de arriba y pulsa **Ejecutar**.
 2. Acepta los permisos (Sheet, Drive y correo). Si sale «Google no ha verificado esta aplicación»: **Configuración avanzada → Ir a … (no seguro)**. Es tu propio script.
-3. En el Sheet aparecerá la pestaña `Incidencias` con las cabeceras.
+3. En el Sheet aparecerán las pestañas `Incidencias` (con las cabeceras) e `Importar GR-01` (vacía). Si ya tenías la pestaña de la primera prueba, se conserva como «Incidencias (primera prueba)».
+4. Recarga el Sheet: aparece el menú **Incidencias**.
 
 ## 5. Publicar
 
@@ -41,8 +42,25 @@ Cuando cambies el código: **Implementar → Gestionar implementaciones → edit
 
 ## 6. Avisos por correo (opcional)
 
-En `Config.gs`, rellena `CORREOS_COMERCIALES` y `RESPONSABLES`. Guarda y publica una nueva versión.
+En `Config.gs`, rellena `CORREOS_ASIGNADO_A` y `RESPONSABLES`. Guarda y publica una nueva versión.
 
 ## 7. En el móvil
 
 Abre la URL en el navegador del teléfono y usa **Añadir a pantalla de inicio**.
+
+## 8. Cargar el Excel GR-01
+
+Se puede repetir siempre que el Excel cambie: no duplica, actualiza.
+
+1. Abre el Excel GR-01 en SharePoint. Selecciona toda la hoja (Ctrl+A) y cópiala (Ctrl+C).
+2. En el Google Sheet, ve a la pestaña **Importar GR-01**. Si tiene algo de antes, bórralo (Ctrl+A y Supr).
+3. Haz clic en la celda **A1** y pega **solo los valores** con **Ctrl+Mayús+V** (en Mac, Cmd+Mayús+V). Así las fechas no cambian de formato.
+4. Menú **Incidencias → Importar GR-01**. La primera vez pedirá permisos.
+5. Sale un aviso con cuántas incidencias se han añadido y actualizado. Abre la aplicación y pulsa «Actualizar» en el panel.
+
+## 9. Pasar de la primera versión a esta
+
+1. Sustituye el contenido de los cinco archivos (`Codigo`, `Config`, `Index`, `Estilos` y `App`).
+2. Ejecuta `prepararTodo` (paso 4).
+3. Publica una versión nueva: **Implementar → Gestionar implementaciones → lápiz → Versión: Nueva versión → Implementar**.
+4. Carga el Excel GR-01 (paso 8).

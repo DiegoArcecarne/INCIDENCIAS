@@ -68,39 +68,51 @@
             <label for="filtroPeriodo">Periodo</label>
             <select id="filtroPeriodo">
               <option value="7">Últimos 7 días</option>
-              <option value="30" selected>Últimos 30 días</option>
+              <option value="30">Últimos 30 días</option>
               <option value="90">Últimos 90 días</option>
-              <option value="anio">Este año</option>
+              <option value="anio" selected>Este año</option>
               <option value="todo">Todo</option>
             </select>
-          </div>
-          <div>
-            <label for="filtroComercial">Comercial</label>
-            <select id="filtroComercial"></select>
-          </div>
-          <div>
-            <label for="filtroTipo">Tipo</label>
-            <select id="filtroTipo"></select>
           </div>
           <div>
             <label for="filtroEstado">Estado</label>
             <select id="filtroEstado"></select>
           </div>
-          <div class="filtro-extra">
-            <label for="filtroCategoria">Categoría</label>
-            <select id="filtroCategoria"></select>
+          <div>
+            <label for="filtroGravedad">Gravedad</label>
+            <select id="filtroGravedad"></select>
+          </div>
+          <div>
+            <label for="filtroTipo">Tipo incidencia</label>
+            <select id="filtroTipo"></select>
           </div>
           <div class="filtro-extra">
-            <label for="filtroDetecta">Detectada por</label>
-            <select id="filtroDetecta"></select>
+            <label for="filtroDepartamento">Departamento</label>
+            <select id="filtroDepartamento"></select>
           </div>
           <div class="filtro-extra">
-            <label for="filtroAfecta">Afecta al servicio</label>
-            <select id="filtroAfecta"></select>
+            <label for="filtroAsignado">Asignado a</label>
+            <select id="filtroAsignado"></select>
           </div>
           <div class="filtro-extra">
-            <label for="filtroCliente">Cliente</label>
-            <input id="filtroCliente" type="search" placeholder="Nombre o código">
+            <label for="filtroFallado">Quién ha fallado</label>
+            <select id="filtroFallado"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroInformado">Informado por</label>
+            <select id="filtroInformado"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroDestino">Destino</label>
+            <select id="filtroDestino"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroOrigen">Origen</label>
+            <select id="filtroOrigen"></select>
+          </div>
+          <div class="filtro-extra filtro-doble">
+            <label for="filtroTexto">Buscar</label>
+            <input id="filtroTexto" type="search" placeholder="Cliente, código, artículo, lote o descripción">
           </div>
         </div>
         <div class="panel-barra">
@@ -132,18 +144,22 @@
             <h3>Abiertas y resueltas</h3>
             <div id="gEstado"></div>
           </div>
-          <div class="tarjeta"><h3>Por tipo</h3><div id="dTipo"></div></div>
-          <div class="tarjeta"><h3>Por comercial</h3><div id="dComercial"></div></div>
-          <div class="tarjeta"><h3>Por producto</h3><div id="dProducto"></div></div>
-          <div class="tarjeta"><h3>Quién la detecta</h3><div id="dDetecta"></div></div>
-          <div class="tarjeta"><h3>Afecta al servicio</h3><div id="dAfecta"></div></div>
+          <div class="tarjeta"><h3>Por gravedad</h3><div id="dGravedad"></div></div>
+          <div class="tarjeta"><h3>Por tipo de incidencia</h3><div id="dTipo"></div></div>
+          <div class="tarjeta"><h3>Por departamento</h3><div id="dDepartamento"></div></div>
+          <div class="tarjeta"><h3>Quién ha fallado</h3><div id="dFallado"></div></div>
+          <div class="tarjeta"><h3>Asignado a</h3><div id="dAsignado"></div></div>
+          <div class="tarjeta"><h3>Informado por</h3><div id="dInformado"></div></div>
+          <div class="tarjeta"><h3>Destino</h3><div id="dDestino"></div></div>
           <div class="tarjeta"><h3>Por día de la semana</h3><div id="dDia"></div></div>
           <div class="tarjeta tarjeta-ancha"><h3>Clientes con más de una incidencia</h3><div id="dRepetidos"></div></div>
+          <div class="tarjeta tarjeta-ancha"><h3>Artículos con más de una incidencia</h3><div id="dArticulos"></div></div>
         </div>
         <p class="nota">Toca una barra para filtrar por ese valor. Vuelve a tocarla para quitar el filtro.</p>
 
         <h2 class="titulo-lista">Incidencias <span id="cuentaLista" class="nota"></span></h2>
         <div id="listaIncidencias" class="lista-incidencias"></div>
+        <button id="btnVerMas" type="button" class="btn btn-claro btn-ver-mas oculto">Ver más</button>
       </section>
 
       <!-- Nueva incidencia -->
@@ -156,73 +172,70 @@
         <form id="formIncidencia" novalidate>
           <div id="avisoCorreccion" class="mensaje mensaje-info oculto"></div>
 
-          <fieldset>
-            <legend>Cliente y pedido</legend>
-            <label for="fCliente">Cliente <b>*</b></label>
-            <input id="fCliente" name="cliente" type="text" maxlength="150" required>
+          <datalist id="listaInformado"></datalist>
+          <datalist id="listaAsignado"></datalist>
+          <datalist id="listaFallado"></datalist>
+          <datalist id="listaSolucion"></datalist>
 
+          <fieldset>
+            <legend>Cliente y apertura</legend>
             <div class="dos-columnas">
+              <div>
+                <label for="fCliente">Cliente <b>*</b></label>
+                <input id="fCliente" type="text" maxlength="150" required>
+              </div>
               <div>
                 <label for="fCodigoCliente">Código cliente</label>
-                <input id="fCodigoCliente" name="codigoCliente" type="text" maxlength="40" inputmode="text">
-              </div>
-              <div>
-                <label for="fPedido">Pedido o albarán</label>
-                <input id="fPedido" name="pedido" type="text" maxlength="60">
+                <input id="fCodigoCliente" type="text" maxlength="40" inputmode="numeric">
               </div>
             </div>
-
             <div class="dos-columnas">
               <div>
-                <label for="fComercial">Comercial <b>*</b></label>
-                <select id="fComercial" name="comercial" required></select>
+                <label for="fApertura">Apertura <b>*</b></label>
+                <input id="fApertura" type="datetime-local" required>
               </div>
               <div>
-                <label for="fFecha">Fecha incidencia <b>*</b></label>
-                <input id="fFecha" name="fechaIncidencia" type="datetime-local" required>
+                <label for="fInformado">Informado por <b>*</b></label>
+                <input id="fInformado" type="text" maxlength="80" list="listaInformado" required>
               </div>
             </div>
           </fieldset>
 
           <fieldset>
             <legend>Qué ha pasado</legend>
-            <label for="fTipo">Tipo <b>*</b></label>
-            <select id="fTipo" name="tipo" required></select>
-
             <div class="dos-columnas">
               <div>
-                <label for="fCategoria">Categoría</label>
-                <select id="fCategoria" name="categoria"></select>
-              </div>
-              <div id="bloqueClasificacion" class="oculto">
-                <label for="fClasificacion">Clasificación</label>
-                <select id="fClasificacion" name="clasificacion"></select>
-              </div>
-            </div>
-
-            <div class="dos-columnas">
-              <div>
-                <label for="fPieza">Pieza o producto</label>
-                <input id="fPieza" name="pieza" type="text" maxlength="150">
+                <label for="fGravedad">Gravedad <b>*</b></label>
+                <select id="fGravedad" required></select>
               </div>
               <div>
-                <label for="fCantidad">Cantidad afectada</label>
-                <input id="fCantidad" name="cantidad" type="text" maxlength="60" placeholder="Ej.: 2 piezas, 3,5 kg">
+                <label for="fTipo">Tipo incidencia <b>*</b></label>
+                <select id="fTipo" required></select>
               </div>
             </div>
 
             <label for="fDescripcion">Descripción <b>*</b></label>
-            <textarea id="fDescripcion" name="descripcion" rows="4" maxlength="3000" required
-              placeholder="Qué ha pasado, cómo se ha detectado y qué ha pedido el cliente"></textarea>
+            <textarea id="fDescripcion" rows="3" maxlength="3000" required
+              placeholder="Ej.: Devolución vaca lomo corto classic top por falta de maduración"></textarea>
 
             <div class="dos-columnas">
               <div>
-                <label for="fDetectada">Detectada por</label>
-                <select id="fDetectada" name="detectadaPor"></select>
+                <label for="fArticulo">Artículo (código)</label>
+                <input id="fArticulo" type="text" maxlength="60" inputmode="numeric">
               </div>
               <div>
-                <label for="fAfecta">Afecta al servicio</label>
-                <select id="fAfecta" name="afectaServicio"></select>
+                <label for="fLote">Lote</label>
+                <input id="fLote" type="text" maxlength="100">
+              </div>
+            </div>
+            <div class="dos-columnas">
+              <div>
+                <label for="fUnidades">Unidades / peso</label>
+                <input id="fUnidades" type="text" maxlength="100" placeholder="Ej.: 2 unidades = 4,1 kg">
+              </div>
+              <div>
+                <label for="fDepartamento">Departamento</label>
+                <select id="fDepartamento"></select>
               </div>
             </div>
           </fieldset>
@@ -233,17 +246,31 @@
           </fieldset>
 
           <fieldset>
-            <legend>Solución</legend>
+            <legend>Gestión</legend>
+            <div class="dos-columnas">
+              <div>
+                <label for="fAsignado">Asignado a</label>
+                <input id="fAsignado" type="text" maxlength="80" list="listaAsignado">
+              </div>
+              <div>
+                <label for="fFallado">Quién ha fallado</label>
+                <input id="fFallado" type="text" maxlength="80" list="listaFallado">
+              </div>
+            </div>
+            <label for="fComentarios">Comentarios</label>
+            <textarea id="fComentarios" rows="3" maxlength="3000"></textarea>
             <div class="dos-columnas">
               <div>
                 <label for="fSolucion">Solución</label>
-                <select id="fSolucion" name="solucion"></select>
+                <input id="fSolucion" type="text" maxlength="500" list="listaSolucion">
               </div>
               <div>
-                <label for="fEstado">Estado</label>
-                <select id="fEstado" name="estado"></select>
+                <label for="fDestino">Destino</label>
+                <select id="fDestino"></select>
               </div>
             </div>
+            <label for="fEstado">Estado</label>
+            <select id="fEstado"></select>
           </fieldset>
 
           <div class="acciones-form">
@@ -276,7 +303,11 @@
           <p>Es la pantalla de inicio. Elige el periodo y los filtros; los gráficos y la lista se actualizan solos. Toca una barra de cualquier gráfico para quedarte solo con ese valor.</p>
 
           <h3>Cerrar una incidencia</h3>
-          <p>En «Panel», abre la incidencia, elige la solución, escribe una nota si hace falta y pulsa «Marcar como resuelta». Si hay que volver a ella, usa «Reabrir».</p>
+          <p>En el panel, abre la incidencia, escribe la solución y pulsa «Marcar como resuelta». Si hay que volver a ella, usa «Reabrir».</p>
+          <p>Las incidencias que vienen del Excel GR-01 solo se pueden ver aquí. Mientras se use el Excel, se cambian allí y se vuelven a importar.</p>
+
+          <h3>Importar el Excel GR-01</h3>
+          <p>En el Google Sheet: copia el Excel GR-01 entero, pégalo con Ctrl+Mayús+V en la celda A1 de la pestaña «Importar GR-01» y usa el menú Incidencias → Importar GR-01. Se puede repetir las veces que haga falta: no duplica, actualiza.</p>
 
           <h3>Acceso directo en el móvil</h3>
           <p>Abre esta página en el navegador del teléfono y usa «Añadir a pantalla de inicio».</p>

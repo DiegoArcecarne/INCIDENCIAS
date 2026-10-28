@@ -13,8 +13,9 @@
   var DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
   var REQUERIDOS = [
     { id: 'fCliente', campo: 'cliente', nombre: 'cliente' },
-    { id: 'fComercial', campo: 'comercial', nombre: 'comercial' },
-    { id: 'fFecha', campo: 'fechaIncidencia', nombre: 'fecha' },
+    { id: 'fApertura', campo: 'apertura', nombre: 'apertura' },
+    { id: 'fInformado', campo: 'informadoPor', nombre: 'informado por' },
+    { id: 'fGravedad', campo: 'gravedad', nombre: 'gravedad' },
     { id: 'fTipo', campo: 'tipo', nombre: 'tipo' },
     { id: 'fDescripcion', campo: 'descripcion', nombre: 'descripción' }
   ];
@@ -45,11 +46,11 @@
       ' ' + dos(f.getHours()) + ':' + dos(f.getMinutes());
   }
 
-  /** 'yyyy-MM-dd HH:mm' -> Date, o null */
+  /** 'yyyy-MM-dd[ HH:mm]' -> Date, o null */
   function leerFecha(t) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(t || ''));
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String(t || ''));
     if (!m) return null;
-    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+    return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
   }
 
   function valorFechaInput(f) {
@@ -444,6 +445,7 @@
     $('pantallaEntrada').classList.add('oculto');
     $('app').classList.remove('oculto');
     $('nombreUsuario').textContent = usuario.nombre;
+    if (!$('fInformado').value) $('fInformado').value = usuario.nombre;
     mostrarVista('vistaPanel');
   }
 
@@ -501,52 +503,59 @@
   // Formulario
   // -------------------------------------------------------------------------
 
+  // Campo del formulario -> dato que se envía al servidor.
+  var CAMPOS_FORM = [
+    { id: 'fCliente', campo: 'cliente' },
+    { id: 'fCodigoCliente', campo: 'codigoCliente' },
+    { id: 'fInformado', campo: 'informadoPor' },
+    { id: 'fGravedad', campo: 'gravedad' },
+    { id: 'fTipo', campo: 'tipo' },
+    { id: 'fDescripcion', campo: 'descripcion' },
+    { id: 'fArticulo', campo: 'articulo' },
+    { id: 'fLote', campo: 'lote' },
+    { id: 'fUnidades', campo: 'unidades' },
+    { id: 'fDepartamento', campo: 'departamento' },
+    { id: 'fAsignado', campo: 'asignadoA' },
+    { id: 'fFallado', campo: 'quienHaFallado' },
+    { id: 'fComentarios', campo: 'comentarios' },
+    { id: 'fSolucion', campo: 'solucion' },
+    { id: 'fDestino', campo: 'destino' },
+    { id: 'fEstado', campo: 'estado' }
+  ];
+
+  function rellenarDatalist(lista, valores) {
+    vaciar(lista);
+    valores.forEach(function (v) {
+      var o = el('option');
+      o.value = v;
+      lista.appendChild(o);
+    });
+  }
+
   function prepararFormulario() {
-    rellenarSelect($('fComercial'), L.comerciales, { valor: '', texto: 'Elige comercial' });
+    rellenarSelect($('fGravedad'), L.gravedades, { valor: '', texto: 'Elige gravedad' });
     rellenarSelect($('fTipo'), L.tipos, { valor: '', texto: 'Elige tipo' });
-    rellenarSelect($('fCategoria'), L.categorias, { valor: '', texto: 'Elige categoría' });
-    rellenarSelect($('fClasificacion'), L.clasificaciones);
-    rellenarSelect($('fDetectada'), L.detectadaPor, { valor: '', texto: 'Sin indicar' });
-    rellenarSelect($('fAfecta'), L.afectaServicio, { valor: '', texto: 'Sin indicar' });
-    rellenarSelect($('fSolucion'), L.soluciones);
+    rellenarSelect($('fDepartamento'), L.departamentos, { valor: '', texto: 'Sin indicar' });
+    rellenarSelect($('fDestino'), L.destinos, { valor: '', texto: 'No aplica' });
     rellenarSelect($('fEstado'), L.estados);
+    rellenarDatalist($('listaInformado'), L.informadoPor);
+    rellenarDatalist($('listaAsignado'), L.asignadoA);
+    rellenarDatalist($('listaFallado'), L.quienHaFallado);
+    rellenarDatalist($('listaSolucion'), L.soluciones);
     prepararFotos();
     valoresPorDefecto();
   }
 
   function valoresPorDefecto() {
-    $('fFecha').value = valorFechaInput(new Date());
-    $('fSolucion').value = 'Pendiente';
+    $('fApertura').value = valorFechaInput(new Date());
     $('fEstado').value = 'Abierta';
-    $('fClasificacion').value = 'No lo sé';
-    alCambiarCategoria();
-  }
-
-  function alCambiarCategoria() {
-    var lleva = L.categoriasConClasificacion.indexOf($('fCategoria').value) >= 0;
-    $('bloqueClasificacion').classList.toggle('oculto', !lleva);
+    if (usuario && usuario.nombre && !$('fInformado').value) $('fInformado').value = usuario.nombre;
   }
 
   function leerFormulario() {
-    var categoria = $('fCategoria').value;
-    var lleva = L.categoriasConClasificacion.indexOf(categoria) >= 0;
-    return {
-      cliente: $('fCliente').value.trim(),
-      codigoCliente: $('fCodigoCliente').value.trim(),
-      comercial: $('fComercial').value,
-      pedido: $('fPedido').value.trim(),
-      fechaIncidencia: ($('fFecha').value || '').replace('T', ' ').slice(0, 16),
-      tipo: $('fTipo').value,
-      categoria: categoria || 'No aplica',
-      clasificacion: lleva ? $('fClasificacion').value : 'No aplica',
-      pieza: $('fPieza').value.trim(),
-      cantidad: $('fCantidad').value.trim(),
-      descripcion: $('fDescripcion').value.trim(),
-      detectadaPor: $('fDetectada').value,
-      afectaServicio: $('fAfecta').value,
-      solucion: $('fSolucion').value,
-      estado: $('fEstado').value
-    };
+    var datos = { apertura: ($('fApertura').value || '').replace('T', ' ').slice(0, 16) };
+    CAMPOS_FORM.forEach(function (c) { datos[c.campo] = $(c.id).value.trim(); });
+    return datos;
   }
 
   function validarFormulario(datos) {
@@ -556,12 +565,17 @@
       $(r.id).classList.toggle('campo-error', vacio);
       if (vacio) faltan.push(r.nombre);
     });
+    if (datos.estado === 'Resuelta' && !datos.solucion) {
+      $('fSolucion').classList.add('campo-error');
+      faltan.push('solución (para registrarla como resuelta)');
+    }
     return faltan;
   }
 
   function limpiarFormulario() {
     $('formIncidencia').reset();
     REQUERIDOS.forEach(function (r) { $(r.id).classList.remove('campo-error'); });
+    $('fSolucion').classList.remove('campo-error');
     for (var i = 0; i < L.maxFotos; i++) fotosForm[i] = null;
     pintarFotos();
     correccion = null;
@@ -573,22 +587,9 @@
   function cargarEnFormulario(reg) {
     limpiarFormulario();
     var d = reg.datos || {};
-    $('fCliente').value = d.cliente || '';
-    $('fCodigoCliente').value = d.codigoCliente || '';
-    $('fComercial').value = d.comercial || '';
-    $('fPedido').value = d.pedido || '';
-    $('fFecha').value = (d.fechaIncidencia || '').replace(' ', 'T');
-    $('fTipo').value = d.tipo || '';
-    $('fCategoria').value = d.categoria && d.categoria !== 'No aplica' ? d.categoria : '';
-    if (d.clasificacion && d.clasificacion !== 'No aplica') $('fClasificacion').value = d.clasificacion;
-    $('fPieza').value = d.pieza || '';
-    $('fCantidad').value = d.cantidad || '';
-    $('fDescripcion').value = d.descripcion || '';
-    $('fDetectada').value = d.detectadaPor || '';
-    $('fAfecta').value = d.afectaServicio || '';
-    $('fSolucion').value = d.solucion || 'Pendiente';
-    $('fEstado').value = d.estado || 'Abierta';
-    alCambiarCategoria();
+    CAMPOS_FORM.forEach(function (c) { $(c.id).value = d[c.campo] || ''; });
+    $('fApertura').value = (d.apertura || '').replace(' ', 'T');
+    if (!$('fEstado').value) $('fEstado').value = 'Abierta';
     (d.fotos || []).forEach(function (f, i) {
       if (i < L.maxFotos && f && f.base64) fotosForm[i] = { base64: f.base64 };
     });
@@ -844,6 +845,7 @@
       incidenciasPanel = r.incidencias || [];
       var f = new Date();
       $('panelActualizado').textContent = 'Actualizado a las ' + dos(f.getHours()) + ':' + dos(f.getMinutes());
+      rellenarFiltros();
       pintarPanel();
     }, function () {
       cargando(false);
@@ -853,26 +855,47 @@
   }
 
   function fechaDe(inc) {
-    return leerFecha(inc['Fecha incidencia']) || leerFecha(inc['Fecha registro']);
+    return leerFecha(inc['Apertura']) || leerFecha(inc['Fecha registro']);
+  }
+
+  /** Días naturales entre dos fechas (sin contar horas), como en el GR-01. */
+  function diasEntre(a, b) {
+    return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+      Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
+  }
+
+  /** 'yyyy-MM-dd[ HH:mm]' -> 'dd/MM/yyyy[ HH:mm]' */
+  function fechaVisible(t) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(String(t || ''));
+    if (!m) return t || '';
+    return m[3] + '/' + m[2] + '/' + m[1] + (m[4] && m[4] !== '00:00' ? ' ' + m[4] : '');
   }
 
   function claveCliente(inc) {
     var codigo = String(inc['Código cliente'] || '').trim().toLowerCase();
     if (codigo) return 'c:' + codigo;
-    return 'n:' + String(inc['Cliente'] || '').trim().toLowerCase();
+    return 'n:' + normalizar(inc['Cliente']);
   }
 
-  // Filtros por campo: id del desplegable, columna del Sheet y valor cuando está vacía.
+  // Filtros por campo: id del desplegable, columna del Sheet, valores fijos y texto cuando está vacía.
   var FILTROS = [
-    { id: 'filtroComercial', campo: 'Comercial', vacio: 'Sin asignar' },
-    { id: 'filtroTipo', campo: 'Tipo', vacio: 'Sin tipo' },
-    { id: 'filtroEstado', campo: 'Estado', vacio: 'Abierta' },
-    { id: 'filtroCategoria', campo: 'Categoría', vacio: 'No aplica' },
-    { id: 'filtroDetecta', campo: 'Detectada por', vacio: 'Sin indicar' },
-    { id: 'filtroAfecta', campo: 'Afecta al servicio', vacio: 'Sin indicar' }
+    { id: 'filtroEstado', campo: 'Estado', fijos: L.estados, vacio: 'Abierta', todos: 'Todos' },
+    { id: 'filtroGravedad', campo: 'Gravedad', fijos: L.gravedades, vacio: 'Sin indicar', todos: 'Todas' },
+    { id: 'filtroTipo', campo: 'Tipo incidencia', fijos: L.tipos, vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroDepartamento', campo: 'Departamento', fijos: L.departamentos, vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroAsignado', campo: 'Asignado a', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroFallado', campo: 'Quién ha fallado', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroInformado', campo: 'Informado por', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroDestino', campo: 'Destino', fijos: L.destinos, vacio: 'No aplica', todos: 'Todos' },
+    { id: 'filtroOrigen', campo: 'Origen', fijos: [L.origenApp, L.origenGR01], vacio: L.origenApp, todos: 'Todos' }
   ];
-  var FILTROS_EXTRA = ['filtroCategoria', 'filtroDetecta', 'filtroAfecta', 'filtroCliente'];
+  var FILTROS_EXTRA = ['filtroDepartamento', 'filtroAsignado', 'filtroFallado', 'filtroInformado', 'filtroDestino', 'filtroOrigen', 'filtroTexto'];
+  var CAMPOS_BUSQUEDA = ['Cliente', 'Código cliente', 'Artículo', 'Lote', 'Descripción', 'Comentarios', 'Nº GR-01', 'ID'];
   var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  var POR_PAGINA = 50;
+  var LIMITE_BARRAS = 10;
+  var barrasAbiertas = {};
+  var mostrandoLista = POR_PAGINA;
 
   function filtroPorId(id) {
     for (var i = 0; i < FILTROS.length; i++) if (FILTROS[i].id === id) return FILTROS[i];
@@ -880,7 +903,7 @@
   }
 
   function valorCampo(inc, filtro) {
-    return String(inc[filtro.campo] || '').trim() || filtro.vacio;
+    return String(inc[filtro.campo] || '').replace(/\s+/g, ' ').trim() || filtro.vacio;
   }
 
   function normalizar(t) {
@@ -889,32 +912,52 @@
     return t;
   }
 
-  function prepararPanel() {
-    rellenarSelect($('filtroComercial'), L.comerciales, { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroTipo'), L.tipos, { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroEstado'), L.estados, { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroCategoria'), L.categorias, { valor: '', texto: 'Todas' });
-    rellenarSelect($('filtroDetecta'), L.detectadaPor.concat(['Sin indicar']), { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroAfecta'), L.afectaServicio.concat(['Sin indicar']), { valor: '', texto: 'Todos' });
+  /** Opciones de cada filtro: las fijas y además las que aparezcan en los datos. */
+  function rellenarFiltros() {
+    FILTROS.forEach(function (f) {
+      var sel = $(f.id);
+      var elegido = sel.value;
+      var cuenta = {};
+      (incidenciasPanel || []).forEach(function (inc) {
+        var v = valorCampo(inc, f);
+        cuenta[v] = (cuenta[v] || 0) + 1;
+      });
+      var opciones = f.fijos.slice();
+      Object.keys(cuenta)
+        .filter(function (v) { return opciones.indexOf(v) < 0 && v !== f.vacio; })
+        .sort(function (a, b) { return cuenta[b] - cuenta[a] || a.localeCompare(b, 'es'); })
+        .forEach(function (v) { opciones.push(v); });
+      if (opciones.indexOf(f.vacio) < 0 && cuenta[f.vacio]) opciones.push(f.vacio);
+      rellenarSelect(sel, opciones, { valor: '', texto: f.todos });
+      sel.value = opciones.indexOf(elegido) >= 0 ? elegido : '';
+    });
+  }
 
+  function prepararPanel() {
+    rellenarFiltros();
     ['filtroPeriodo'].concat(FILTROS.map(function (f) { return f.id; })).forEach(function (id) {
-      $(id).addEventListener('change', pintarPanel);
+      $(id).addEventListener('change', function () { mostrandoLista = POR_PAGINA; pintarPanel(); });
     });
     var espera = null;
-    $('filtroCliente').addEventListener('input', function () {
+    $('filtroTexto').addEventListener('input', function () {
       clearTimeout(espera);
-      espera = setTimeout(pintarPanel, 250);
+      espera = setTimeout(function () { mostrandoLista = POR_PAGINA; pintarPanel(); }, 250);
     });
     $('btnMasFiltros').addEventListener('click', function () { verFiltrosExtra(!$('filtros').classList.contains('ver-todos')); });
     $('btnQuitarFiltros').addEventListener('click', function () {
       FILTROS.forEach(function (f) { $(f.id).value = ''; });
-      $('filtroCliente').value = '';
+      $('filtroTexto').value = '';
+      mostrandoLista = POR_PAGINA;
       pintarPanel();
     });
     $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
     $('btnAnadir').addEventListener('click', function () {
       mostrarVista('vistaRegistrar');
       window.scrollTo(0, 0);
+    });
+    $('btnVerMas').addEventListener('click', function () {
+      mostrandoLista += POR_PAGINA;
+      pintarPanel();
     });
   }
 
@@ -927,7 +970,7 @@
   function pintarEstadoFiltros() {
     var activos = 0;
     var extraActivo = false;
-    FILTROS.map(function (f) { return f.id; }).concat(['filtroCliente']).forEach(function (id) {
+    FILTROS.map(function (f) { return f.id; }).concat(['filtroTexto']).forEach(function (id) {
       var activo = !!$(id).value.trim();
       $(id).classList.toggle('filtro-activo', activo);
       if (activo) {
@@ -950,14 +993,15 @@
   function filtrar(lista) {
     var desde = inicioPeriodo($('filtroPeriodo').value);
     var activos = FILTROS.filter(function (f) { return $(f.id).value; });
-    var cliente = normalizar($('filtroCliente').value);
+    var texto = normalizar($('filtroTexto').value);
     return lista.filter(function (inc) {
       for (var i = 0; i < activos.length; i++) {
         if (valorCampo(inc, activos[i]) !== $(activos[i].id).value) return false;
       }
-      if (cliente &&
-          normalizar(inc['Cliente']).indexOf(cliente) < 0 &&
-          normalizar(inc['Código cliente']).indexOf(cliente) < 0) return false;
+      if (texto) {
+        var encontrado = CAMPOS_BUSQUEDA.some(function (c) { return normalizar(inc[c]).indexOf(texto) >= 0; });
+        if (!encontrado) return false;
+      }
       if (desde) {
         var f = fechaDe(inc);
         if (!f || f < desde) return false;
@@ -980,13 +1024,17 @@
     var sel = $(idFiltro);
     sel.value = sel.value === valor ? '' : valor;
     if (FILTROS_EXTRA.indexOf(idFiltro) >= 0 && sel.value) verFiltrosExtra(true);
+    mostrandoLista = POR_PAGINA;
     pintarPanel();
   }
 
-  /** Barras horizontales. Con idFiltro, cada barra filtra el panel al tocarla. */
+  /**
+   * Barras horizontales. Con idFiltro, cada barra filtra el panel al tocarla.
+   * Si hay más de LIMITE_BARRAS valores, enseña los primeros y un botón para ver todos.
+   */
   function pintarBarras(contenedor, mapa, orden, idFiltro) {
     vaciar(contenedor);
-    var claves = orden || Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a]; });
+    var claves = orden || Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a] || a.localeCompare(b, 'es'); });
     var max = 0;
     claves.forEach(function (k) { max = Math.max(max, mapa[k] || 0); });
     if (!max) {
@@ -994,7 +1042,11 @@
       return;
     }
     var seleccionado = idFiltro ? $(idFiltro).value : '';
-    claves.forEach(function (k) {
+    var abierto = !!barrasAbiertas[contenedor.id];
+    var visibles = !orden && !abierto && claves.length > LIMITE_BARRAS ? claves.slice(0, LIMITE_BARRAS) : claves;
+    if (seleccionado && visibles.indexOf(seleccionado) < 0 && claves.indexOf(seleccionado) >= 0) visibles.push(seleccionado);
+
+    visibles.forEach(function (k) {
       var n = mapa[k] || 0;
       var fila = el(idFiltro ? 'button' : 'div', 'barra' + (idFiltro ? ' barra-boton' : '') + (seleccionado === k ? ' seleccionada' : ''));
       if (idFiltro) {
@@ -1015,6 +1067,16 @@
       fila.appendChild(fondo);
       contenedor.appendChild(fila);
     });
+
+    if (!orden && claves.length > LIMITE_BARRAS) {
+      var mas = el('button', 'enlace', abierto ? 'Ver menos' : 'Ver todos (' + claves.length + ')');
+      mas.type = 'button';
+      mas.addEventListener('click', function () {
+        barrasAbiertas[contenedor.id] = !abierto;
+        pintarBarras(contenedor, mapa, orden, idFiltro);
+      });
+      contenedor.appendChild(mas);
+    }
   }
 
   /** Columnas por día, semana o mes según el periodo. */
@@ -1148,9 +1210,8 @@
       b.type = 'button';
       b.style.textDecoration = 'none';
       b.style.color = 'inherit';
-      var muestra = el('i', d[3]);
       var s = el('span');
-      s.appendChild(muestra);
+      s.appendChild(el('i', d[3]));
       s.appendChild(document.createTextNode(d[1] + ': ' + d[2] + ' (' + pct + ' %)'));
       if ($('filtroEstado').value === d[0]) s.style.fontWeight = 'bold';
       b.appendChild(s);
@@ -1161,36 +1222,44 @@
     cont.appendChild(leyenda);
   }
 
-  function pintarRepetidos(lista) {
-    var cont = $('dRepetidos');
+  /**
+   * Tabla de elementos que se repiten (clientes o artículos).
+   * claveDe(inc) agrupa; nombreDe(inc) es el texto que se ve; buscar(inc) es lo que se escribe en «Buscar».
+   */
+  function pintarRepetidos(idCont, lista, claveDe, nombreDe, buscar, cabecera, vacio) {
+    var cont = $(idCont);
     vaciar(cont);
     var grupos = {};
     lista.forEach(function (i) {
-      var k = claveCliente(i);
-      if (!grupos[k]) grupos[k] = { nombre: i['Cliente'] || 'Sin nombre', codigo: i['Código cliente'] || '', n: 0, abiertas: 0 };
+      var k = claveDe(i);
+      if (!k) return;
+      if (!grupos[k]) grupos[k] = { nombre: nombreDe(i), buscar: buscar(i), n: 0, abiertas: 0 };
       grupos[k].n++;
       if (i['Estado'] !== 'Resuelta') grupos[k].abiertas++;
     });
     var repetidos = Object.keys(grupos).map(function (k) { return grupos[k]; })
       .filter(function (g) { return g.n > 1; })
-      .sort(function (a, b) { return b.n - a.n; });
+      .sort(function (a, b) { return b.n - a.n || b.abiertas - a.abiertas; });
     if (!repetidos.length) {
-      cont.appendChild(el('p', 'vacio', 'Ningún cliente repite con estos filtros.'));
+      cont.appendChild(el('p', 'vacio', vacio));
       return;
     }
+    var abierto = !!barrasAbiertas[idCont];
+    var visibles = abierto ? repetidos : repetidos.slice(0, LIMITE_BARRAS);
     var tabla = el('table', 'tabla-repetidos');
     var cab = el('tr');
-    ['Cliente', 'Abiertas', 'Total'].forEach(function (t) { cab.appendChild(el('th', null, t)); });
+    [cabecera, 'Abiertas', 'Total'].forEach(function (t) { cab.appendChild(el('th', null, t)); });
     tabla.appendChild(cab);
-    repetidos.forEach(function (g) {
+    visibles.forEach(function (g) {
       var tr = el('tr');
       var td = el('td');
-      var b = el('button', null, g.nombre + (g.codigo ? ' (' + g.codigo + ')' : ''));
+      var b = el('button', null, g.nombre);
       b.type = 'button';
-      b.title = 'Ver solo este cliente';
+      b.title = 'Ver solo estas incidencias';
       b.addEventListener('click', function () {
-        $('filtroCliente').value = g.codigo || g.nombre;
+        $('filtroTexto').value = g.buscar;
         verFiltrosExtra(true);
+        mostrandoLista = POR_PAGINA;
         pintarPanel();
         $('listaIncidencias').scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
@@ -1201,6 +1270,15 @@
       tabla.appendChild(tr);
     });
     cont.appendChild(tabla);
+    if (repetidos.length > LIMITE_BARRAS) {
+      var mas = el('button', 'enlace', abierto ? 'Ver menos' : 'Ver todos (' + repetidos.length + ')');
+      mas.type = 'button';
+      mas.addEventListener('click', function () {
+        barrasAbiertas[idCont] = !abierto;
+        pintarRepetidos(idCont, lista, claveDe, nombreDe, buscar, cabecera, vacio);
+      });
+      cont.appendChild(mas);
+    }
   }
 
   function pintarPanel() {
@@ -1219,8 +1297,8 @@
     lista.forEach(function (i) {
       if (i['Estado'] !== 'Resuelta') return;
       var ini = fechaDe(i);
-      var fin = leerFecha(i['Fecha resolución']);
-      if (ini && fin && fin >= ini) dias.push((fin - ini) / 86400000);
+      var fin = leerFecha(i['Resolución']);
+      if (ini && fin && fin >= ini) dias.push(diasEntre(ini, fin));
     });
     $('kDias').textContent = dias.length
       ? formatoNumero(dias.reduce(function (a, b) { return a + b; }, 0) / dias.length, 1)
@@ -1233,16 +1311,32 @@
       var f = filtroPorId(idFiltro);
       pintarBarras($(idCont), contar(lista, function (i) { return valorCampo(i, f); }), orden, idFiltro);
     }
+    var ordenGravedad = L.gravedades.slice();
+    lista.forEach(function (i) {
+      var g = valorCampo(i, filtroPorId('filtroGravedad'));
+      if (ordenGravedad.indexOf(g) < 0) ordenGravedad.push(g);
+    });
+    barrasDe('dGravedad', 'filtroGravedad', ordenGravedad);
     barrasDe('dTipo', 'filtroTipo');
-    barrasDe('dComercial', 'filtroComercial');
-    barrasDe('dProducto', 'filtroCategoria');
-    barrasDe('dDetecta', 'filtroDetecta');
-    barrasDe('dAfecta', 'filtroAfecta', L.afectaServicio.concat(['Sin indicar']));
+    barrasDe('dDepartamento', 'filtroDepartamento');
+    barrasDe('dFallado', 'filtroFallado');
+    barrasDe('dAsignado', 'filtroAsignado');
+    barrasDe('dInformado', 'filtroInformado');
+    barrasDe('dDestino', 'filtroDestino');
     pintarBarras($('dDia'), contar(lista, function (i) {
       var f = fechaDe(i);
       return f ? DIAS_SEMANA[(f.getDay() + 6) % 7] : 'Sin fecha';
     }), DIAS_SEMANA);
-    pintarRepetidos(lista);
+
+    pintarRepetidos('dRepetidos', lista, claveCliente,
+      function (i) { return (i['Cliente'] || 'Sin nombre') + (i['Código cliente'] ? ' (' + i['Código cliente'] + ')' : ''); },
+      function (i) { return i['Código cliente'] || i['Cliente'] || ''; },
+      'Cliente', 'Ningún cliente repite con estos filtros.');
+    pintarRepetidos('dArticulos', lista,
+      function (i) { return String(i['Artículo'] || '').trim(); },
+      function (i) { return i['Artículo'] + ' · ' + String(i['Descripción'] || '').slice(0, 60); },
+      function (i) { return String(i['Artículo'] || '').trim(); },
+      'Artículo', 'Ningún artículo repite con estos filtros.');
 
     pintarLista(lista);
   }
@@ -1253,13 +1347,19 @@
     $('cuentaLista').textContent = '(' + lista.length + ')';
     if (!lista.length) {
       cont.appendChild(el('p', 'vacio', 'No hay incidencias con estos filtros.'));
+      $('btnVerMas').classList.add('oculto');
       return;
     }
     var ordenada = lista.slice().sort(function (a, b) {
       var fa = fechaDe(a), fb = fechaDe(b);
-      return (fb ? fb.getTime() : 0) - (fa ? fa.getTime() : 0);
+      var d = (fb ? fb.getTime() : 0) - (fa ? fa.getTime() : 0);
+      if (d) return d;
+      return (parseInt(b['Nº GR-01'], 10) || 0) - (parseInt(a['Nº GR-01'], 10) || 0);
     });
-    ordenada.forEach(function (inc) { cont.appendChild(crearTarjetaIncidencia(inc)); });
+    ordenada.slice(0, mostrandoLista).forEach(function (inc) { cont.appendChild(crearTarjetaIncidencia(inc)); });
+    var quedan = ordenada.length - mostrandoLista;
+    $('btnVerMas').classList.toggle('oculto', quedan <= 0);
+    $('btnVerMas').textContent = 'Ver más (' + Math.max(0, quedan) + ' más)';
   }
 
   function crearTarjetaIncidencia(inc) {
@@ -1270,10 +1370,18 @@
     cabeza.type = 'button';
     var l1 = el('div', 'linea1');
     l1.appendChild(el('span', null, inc['Cliente'] || 'Sin cliente'));
-    l1.appendChild(el('span', 'estado' + (resuelta ? ' resuelta' : ''), inc['Estado'] || 'Abierta'));
+    var chips = el('span', 'chips');
+    if (inc['Gravedad']) chips.appendChild(el('span', 'chip-gravedad', inc['Gravedad']));
+    chips.appendChild(el('span', 'estado' + (resuelta ? ' resuelta' : ''), inc['Estado'] || 'Abierta'));
+    l1.appendChild(chips);
     cabeza.appendChild(l1);
-    cabeza.appendChild(el('div', 'linea2',
-      (inc['Fecha incidencia'] || '') + ' · ' + (inc['Tipo'] || '') + ' · ' + (inc['Comercial'] || '')));
+    cabeza.appendChild(el('div', 'linea2', [
+      fechaVisible(inc['Apertura']),
+      inc['Tipo incidencia'],
+      inc['Departamento'],
+      inc['Nº GR-01'] ? 'Nº ' + inc['Nº GR-01'] : ''
+    ].filter(Boolean).join(' · ')));
+    if (inc['Descripción']) cabeza.appendChild(el('div', 'linea2', inc['Descripción']));
     tarjeta.appendChild(cabeza);
 
     var detalle = el('div', 'incidencia-detalle oculto');
@@ -1299,16 +1407,27 @@
   function pintarDetalle(detalle, inc) {
     var dl = el('dl');
     var campos = [
-      'ID', 'Fecha incidencia', 'Fecha creación en móvil', 'Fecha registro', 'Registrado por',
-      'Cliente', 'Código cliente', 'Comercial', 'Pedido o albarán', 'Tipo', 'Categoría',
-      'Clasificación', 'Pieza o producto', 'Cantidad afectada', 'Descripción', 'Detectada por',
-      'Afecta al servicio', 'Solución', 'Estado', 'Fecha resolución', 'Nota resolución'
+      'Nº GR-01', 'Estado', 'Gravedad', 'Apertura', 'Resolución', 'Cliente', 'Código cliente',
+      'Tipo incidencia', 'Artículo', 'Descripción', 'Lote', 'Unidades / peso', 'Departamento',
+      'Informado por', 'Asignado a', 'Quién ha fallado', 'Comentarios', 'Solución', 'Destino',
+      'Origen', 'Registrado por', 'Fecha registro', 'ID'
     ];
+    var ini = fechaDe(inc);
+    var fin = leerFecha(inc['Resolución']);
     campos.forEach(function (c) {
       if (!inc[c]) return;
       dl.appendChild(el('dt', null, c));
-      dl.appendChild(el('dd', null, inc[c]));
+      var valor = c === 'Apertura' || c === 'Resolución' || c === 'Fecha registro' ? fechaVisible(inc[c]) : inc[c];
+      dl.appendChild(el('dd', null, valor));
+      if (c === 'Resolución' && ini && fin) {
+        dl.appendChild(el('dt', null, 'Días abierta'));
+        dl.appendChild(el('dd', null, String(diasEntre(ini, fin))));
+      }
     });
+    if (inc['Estado'] !== 'Resuelta' && ini) {
+      dl.appendChild(el('dt', null, 'Días abierta'));
+      dl.appendChild(el('dd', null, String(diasEntre(ini, new Date())) + ' (sigue abierta)'));
+    }
     var fotos = ['Foto 1', 'Foto 2', 'Foto 3'].filter(function (c) { return inc[c]; });
     if (fotos.length) {
       dl.appendChild(el('dt', null, 'Fotos'));
@@ -1325,24 +1444,46 @@
     }
     detalle.appendChild(dl);
 
+    if (inc['Origen'] === L.origenGR01) {
+      detalle.appendChild(el('p', 'aviso-origen',
+        'Viene del Excel GR-01. Mientras se use el Excel, los cambios se hacen allí y se vuelve a importar.'));
+      return;
+    }
+
     // Cierre o reapertura
     var resuelta = inc['Estado'] === 'Resuelta';
     var cierre = el('div', 'cierre');
-    var idSol = 'sol-' + inc['ID'];
-    var idNota = 'nota-' + inc['ID'];
-    var lSol = el('label', null, 'Solución');
-    lSol.htmlFor = idSol;
-    var sSol = el('select');
-    sSol.id = idSol;
-    rellenarSelect(sSol, L.soluciones);
-    sSol.value = inc['Solución'] || 'Pendiente';
-    var lNota = el('label', null, 'Nota resolución');
-    lNota.htmlFor = idNota;
-    var tNota = el('textarea');
-    tNota.id = idNota;
-    tNota.rows = 3;
-    tNota.maxLength = 3000;
-    tNota.value = inc['Nota resolución'] || '';
+    var sufijo = inc['ID'];
+
+    function campo(etiqueta, nodo) {
+      var l = el('label', null, etiqueta);
+      nodo.id = 'cierre-' + etiqueta.replace(/\W+/g, '') + '-' + sufijo;
+      l.htmlFor = nodo.id;
+      cierre.appendChild(l);
+      cierre.appendChild(nodo);
+      return nodo;
+    }
+    var iSol = el('input');
+    iSol.type = 'text';
+    iSol.maxLength = 500;
+    iSol.setAttribute('list', 'listaSolucion');
+    iSol.value = inc['Solución'] || '';
+    campo('Solución', iSol);
+    var sDes = el('select');
+    rellenarSelect(sDes, L.destinos, { valor: '', texto: 'No aplica' });
+    sDes.value = inc['Destino'] || '';
+    campo('Destino', sDes);
+    var iFal = el('input');
+    iFal.type = 'text';
+    iFal.maxLength = 80;
+    iFal.setAttribute('list', 'listaFallado');
+    iFal.value = inc['Quién ha fallado'] || '';
+    campo('Quién ha fallado', iFal);
+    var tCom = el('textarea');
+    tCom.rows = 3;
+    tCom.maxLength = 3000;
+    tCom.value = inc['Comentarios'] || '';
+    campo('Comentarios', tCom);
     var msg = el('div', 'mensaje oculto');
 
     var botones = el('div', 'cierre-botones');
@@ -1354,9 +1495,10 @@
     botones.appendChild(bGuardar);
 
     function guardar(nuevoEstado) {
-      if (nuevoEstado === 'Resuelta' && sSol.value === 'Pendiente') {
-        msg.textContent = 'Elige una solución antes de marcarla como resuelta.';
+      if (nuevoEstado === 'Resuelta' && !iSol.value.trim()) {
+        msg.textContent = 'Escribe la solución antes de marcarla como resuelta.';
         msg.className = 'mensaje';
+        iSol.classList.add('campo-error');
         return;
       }
       bPrincipal.disabled = true;
@@ -1364,8 +1506,10 @@
       cargando(true);
       llamar('actualizarIncidencia', [usuario.clave, inc['ID'], {
         estado: nuevoEstado,
-        solucion: sSol.value,
-        nota: tNota.value.trim()
+        solucion: iSol.value.trim(),
+        destino: sDes.value,
+        quienHaFallado: iFal.value.trim(),
+        comentarios: tCom.value.trim()
       }], TIEMPO_MAX_ENVIO).then(function (r) {
         cargando(false);
         bPrincipal.disabled = false;
@@ -1392,10 +1536,6 @@
     bPrincipal.addEventListener('click', function () { guardar(resuelta ? 'Abierta' : 'Resuelta'); });
     bGuardar.addEventListener('click', function () { guardar(inc['Estado'] || 'Abierta'); });
 
-    cierre.appendChild(lSol);
-    cierre.appendChild(sSol);
-    cierre.appendChild(lNota);
-    cierre.appendChild(tNota);
     cierre.appendChild(msg);
     cierre.appendChild(botones);
     detalle.appendChild(cierre);
@@ -1439,7 +1579,6 @@
       limpiarFormulario();
       ocultarMensaje('mensajeRegistro');
     });
-    $('fCategoria').addEventListener('change', alCambiarCategoria);
     REQUERIDOS.forEach(function (r) {
       var quitarError = function () { $(r.id).classList.remove('campo-error'); };
       $(r.id).addEventListener('input', quitarError);

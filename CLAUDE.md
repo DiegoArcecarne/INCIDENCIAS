@@ -38,38 +38,43 @@ Es una prueba. Prioridad: que funcione bien y sea fácil de instalar pegando arc
 
 ## Datos
 
+La estructura sigue el registro de Calidad **GR-01** (Excel «GR-01 Registro Gestión incidencias»), adoptada en la fase 2.
+
 Google Sheet con una pestaña `Incidencias`. Fila 1 = cabeceras exactas, en este orden:
 
-ID · Fecha registro · Fecha creación en móvil · Fecha incidencia · Registrado por · Cliente · Código cliente · Comercial · Pedido o albarán · Tipo · Categoría · Clasificación · Pieza o producto · Cantidad afectada · Descripción · Detectada por · Afecta al servicio · Solución · Estado · Fecha resolución · Nota resolución · Foto 1 · Foto 2 · Foto 3
+ID · Nº GR-01 · Origen · Fecha registro · Fecha creación en móvil · Registrado por · Estado · Gravedad · Artículo · Descripción · Tipo incidencia · Lote · Unidades / peso · Código cliente · Cliente · Departamento · Apertura · Informado por · Asignado a · Quién ha fallado · Resolución · Comentarios · Solución · Destino · Foto 1 · Foto 2 · Foto 3
 
 Reglas:
 
-* `ID`: `INC-AAMMDD-HHMMSS-NNN`, generado en el móvil al pulsar «Registrar», no en el servidor. Así una incidencia que se reintenta varias veces conserva siempre el mismo ID.
+* `ID`: en las altas de la aplicación, `INC-AAMMDD-HHMMSS-NNN`, generado en el móvil al pulsar «Registrar», no en el servidor. Así una incidencia que se reintenta varias veces conserva siempre el mismo ID. En las importadas del Excel, `GR01-<Nº>` (con `-2`, `-3`… si el Nº se repite).
+* `Origen`: «Aplicación» o «Excel GR-01».
 * `Fecha creación en móvil`: cuándo se rellenó. `Fecha registro`: cuándo llegó al Sheet. Si hubo falta de cobertura, no coinciden.
-* Fechas como texto `yyyy-MM-dd HH:mm` en zona `Europe/Madrid` (usar `Utilities.formatDate`), para que el Sheet no las reformatee.
+* Fechas como texto en zona `Europe/Madrid` (usar `Utilities.formatDate`), para que el Sheet no las reformatee: `yyyy-MM-dd HH:mm` en las altas de la aplicación y `yyyy-MM-dd` en Apertura y Resolución importadas del Excel.
+* «Días abierto» y «mes» del Excel no se guardan: se calculan en el panel.
 * Escribir con `LockService` para evitar choques si dos personas registran a la vez.
 * Leer y escribir por nombre de cabecera, no por posición fija.
 * Si la pestaña no existe, crearla con las cabeceras (función `prepararHoja`).
 
-## Listas cerradas (Config.gs)
+## Listas (Config.gs)
 
-* Comerciales: Rosana, Iban, Pitu, Alex, Óscar, Nico, Germán, Aitor, Joserra, Manu, Sin asignar.
-* Tipo: Toma o interpretación del pedido · Preparación en sala · Cantidades o pesos · Calidad · Envío o transporte · Otro.
-* Categoría: Classic · Deluxe nacional · Deluxe europea · Aldea / Royal nacional · Aldea / Royal europea · Wagyu Europeo · Angus · Ternera · Cordero lechal · Cochinillo · Ibérico · Cecina · Hamburguesas · Elaborados y cocinados · Varios productos · No aplica.
-* Clasificación (solo para Classic, Deluxe, Aldea / Royal, Wagyu Europeo y Angus): Extra · Select · Top · Top+ · No lo sé. En el resto se guarda «No aplica».
-* Detectada por: Cliente · Comercial · Sala · Reparto · Atención al cliente.
-* Afecta al servicio: Sí · No · No se sabe.
-* Solución: Pendiente · Reposición · Abono · Cambio de producto · Descuento en el próximo pedido · Explicación al cliente · Sin acción.
+Sacadas de los valores que aparecen en el GR-01.
+
 * Estado: Abierta · Resuelta.
-* Correos de aviso por comercial y lista de responsables: en Config.gs, vacíos por defecto.
+* Gravedad: Baja · Media · Alta.
+* Tipo incidencia: Grabación · Logística · Preparación · Mal estado · Tamaño / Peso · Calidad · Faenado / Corte · Maduración · Poca caducidad · Grasa · Mal sellado · Duro · Cuerpos extraños · Aspecto · Bandejas rotas · Color · Infiltración · Callo · Blanda · Cajas rotas · Temperatura · Otros.
+* Departamento: Pedidos · Chuleteros · Hamburguesas · Fileteado · Congelador · Logística · Ovino · Expediciones · Comercial · Despiece · Compras.
+* Destino: Ventas · Reproceso · Sandach · Ventas y reproceso · Ventas y sandach · Reproceso y sandach · Devolución proveedor · Showroom (vacío = no aplica).
+* Informado por, Asignado a, Quién ha fallado y Solución: texto libre con sugerencias (en el Excel son texto libre).
+* Correos de aviso según «Asignado a» y lista de responsables: en Config.gs, vacíos por defecto.
 
 Terminología: «cochinillo», nunca «lechón». «Aldea» es un sistema de ganadería, no una raza.
 
 ## Funciones de servidor
 
-* `registrarIncidencia(clave, datos)`: valida obligatorios (cliente, comercial, fecha, tipo, descripción). Si ya existe una fila con ese ID, no hace nada más y devuelve éxito con `duplicada: true` (evita duplicados al reintentar). Si no existe, guarda las fotos, añade la fila, envía el aviso y devuelve el ID.
+* `registrarIncidencia(clave, datos)`: valida obligatorios (cliente, apertura, gravedad, tipo, descripción, informado por). Si ya existe una fila con ese ID, no hace nada más y devuelve éxito con `duplicada: true` (evita duplicados al reintentar). Si no existe, guarda las fotos, añade la fila, envía el aviso y devuelve el ID.
 * `obtenerIncidencias(clave)`: devuelve todas las filas como objetos.
-* `actualizarIncidencia(clave, id, cambios)`: cambia Estado, Solución y Nota resolución; pone o borra Fecha resolución según el estado.
+* `actualizarIncidencia(clave, id, cambios)`: cambia Estado, Solución, Destino, Quién ha fallado y Comentarios; pone o borra Resolución según el estado. Solo en incidencias con origen «Aplicación».
+* `importarGR01()`: lee la pestaña `Importar GR-01` (el Excel pegado tal cual), añade las incidencias nuevas y actualiza las que ya estaban. No toca las altas de la aplicación. Se lanza desde el menú «Incidencias» del Sheet.
 
 ## Fotos
 
@@ -101,12 +106,12 @@ Límites que la interfaz debe explicar en la ayuda (no se pueden resolver en App
 
 ## Avisos
 
-* Correo con `MailApp.sendEmail` (HTML) al comercial de la zona y a los responsables.
+* Correo con `MailApp.sendEmail` (HTML) al correo configurado para «Asignado a» y a los responsables.
 * Si el envío falla o no hay correos configurados, la incidencia se guarda igualmente y se registra el error con `console.error`.
 
 ## Panel
 
-Igual que el prototipo: filtros por periodo, comercial, tipo y estado; total, abiertas, clientes afectados y días medios hasta resolver; desglose por tipo, comercial, producto, día de la semana y quién la detecta; clientes con más de una incidencia; lista con detalle y cierre de cada incidencia. Cálculos en el navegador con los datos de `obtenerIncidencias`.
+Es la pantalla de inicio. Filtros por periodo, estado, gravedad y tipo; en «Más filtros», departamento, asignado a, quién ha fallado, informado por, destino, origen y buscador (cliente, código, artículo, lote, descripción). Indicadores: total, abiertas, clientes afectados y días medios hasta resolver. Gráficos: evolución, abiertas y resueltas, y desglose por gravedad, tipo, departamento, quién ha fallado, asignado a, informado por, destino y día de la semana. Tablas de clientes y artículos con más de una incidencia. Lista con detalle y cierre de cada incidencia. Cálculos en el navegador con los datos de `obtenerIncidencias`.
 
 ## Comprobaciones antes de dar una fase por terminada
 
@@ -116,6 +121,7 @@ Igual que el prototipo: filtros por periodo, comercial, tipo y estado; total, ab
 * Modo avión (desde las herramientas del navegador, sin conexión): registrar 2 incidencias con fotos, ver el aviso de pendientes, recuperar conexión y comprobar que llegan solas, una vez cada una y sin duplicar fotos.
 * Reintentar una incidencia que ya llegó al Sheet: no se duplica.
 * Cerrar y reabrir una incidencia: cambian estado y fecha de resolución.
+* Importar el GR-01 dos veces: la segunda no añade nada.
 * Panel con 0 incidencias y con varias: sin errores en consola.
 * Se ve bien a 390 px de ancho.
 
@@ -128,15 +134,20 @@ Igual que el prototipo: filtros por periodo, comercial, tipo y estado; total, ab
 * El prototipo `incidencias.html` no estaba en el repositorio ni en Drive al empezar la fase 1. La interfaz se construyó desde esta especificación. Si aparece, se revisa contra él.
 * El límite de 5 MB se aplica a la foto ya reducida (la página y el servidor lo comprueban). Las fotos originales del móvil suelen pasar de 5 MB y se aceptan porque se reducen antes de enviar.
 * Las funciones de servidor devuelven `{ ok: false, codigo: 'CLAVE' | 'DATOS' }` para los errores que no deben reintentarse solos. Cualquier otro fallo (excepción, sin conexión, más de 30 s) deja la incidencia en la cola.
-* «Fecha incidencia» se pide con fecha y hora (por defecto, el momento actual) y se guarda como `yyyy-MM-dd HH:mm`. La fecha de creación en móvil usa la hora del teléfono.
-* «Producto» en el panel se desglosa por Categoría (lista cerrada); «Pieza o producto» es texto libre y no sirve para agrupar.
-* Días medios hasta resolver = de «Fecha incidencia» a «Fecha resolución», solo en las resueltas.
-* Para cerrar una incidencia hay que elegir una solución distinta de «Pendiente».
+* «Apertura» se pide con fecha y hora (por defecto, el momento actual) y se guarda como `yyyy-MM-dd HH:mm`. La fecha de creación en móvil usa la hora del teléfono.
 * Clientes afectados y repetidos se agrupan por código cliente; si no hay código, por el nombre.
 * Si la clave guardada deja de valer, la página vuelve a pedirla. Al entrar con la clave buena, las pendientes que fallaron por clave vuelven solas a la cola.
 * Las fotos no se comparten automáticamente: quien tenga que abrir los enlaces necesita acceso a la carpeta de Drive (se comparte una vez la carpeta).
 * Además de los momentos de la especificación, la cola se intenta enviar al volver a la página (cambio de pestaña o de aplicación en el móvil).
 * La pantalla de inicio es el panel. Tiene un botón «+ Añadir incidencia» que abre el formulario y una pestaña «Añadir» con el mismo destino. Después de registrar (o de guardar en el teléfono) se vuelve al panel con el mensaje arriba.
-* El panel tiene además: gráfico de evolución (por día en 7 y 30 días, por semana en 90 días, por mes en «Este año» y «Todo»), barra de abiertas y resueltas, desglose por «Afecta al servicio», y filtros extra por categoría, quién la detecta, afecta al servicio y cliente (nombre o código).
+* Gráfico de evolución: por día en 7 y 30 días, por semana en 90 días, por mes en «Este año» y «Todo».
 * Tocar una barra del panel filtra por ese valor; tocarla otra vez quita el filtro. Tocar un cliente repetido filtra por ese cliente.
 * Gráficos hechos con HTML y CSS propios, sin librerías, en un solo color (dorado). Abiertas en dorado y resueltas en verde, siempre con texto y número al lado.
+* Fase 2: la aplicación adopta la estructura del GR-01 de Calidad (gravedad, 22 tipos, departamento, artículo, lote, informado por, asignado a, quién ha fallado, destino). Se quitan Comercial, Categoría, Clasificación, Detectada por y Afecta al servicio, que no existen en el GR-01. La pestaña de la primera prueba se conserva renombrada como «Incidencias (primera prueba)».
+* El Excel GR-01 se sigue usando en paralelo. Se importa pegándolo en la pestaña «Importar GR-01» (Ctrl+Mayús+V) y con el menú Incidencias → Importar GR-01. Se puede repetir: lo que ya está se actualiza, lo nuevo se añade.
+* Mientras el Excel siga en uso, manda el Excel: las incidencias importadas solo se ven en la aplicación y no se pueden cerrar desde ella, para que una importación posterior no pise cambios.
+* Al importar, una fila se considera resuelta si ESTADO dice «Resuelto» o si tiene fecha de resolución (28 filas del Excel tienen fecha de resolución y ESTADO vacío). Las filas numeradas sin ningún dato no se importan. Los «---» se guardan vacíos.
+* Días hasta resolver = días naturales entre Apertura y Resolución, igual que la columna DIAS ABIERTO del Excel.
+* Para cerrar una incidencia hay que escribir la solución (sustituye a la regla de «solución distinta de Pendiente»).
+* El periodo por defecto del panel es «Este año», para que se vean los datos del GR-01.
+* Las barras con más de 10 valores enseñan los 10 primeros y «Ver todos». La lista enseña 50 incidencias y «Ver más».
