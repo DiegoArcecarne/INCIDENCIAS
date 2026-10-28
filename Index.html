@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= incluir('Estilos') ?>
+</head>
+<body>
+
+  <!-- Entrada -->
+  <section id="pantallaEntrada" class="entrada oculto">
+    <div class="entrada-caja">
+      <div class="marca">ARCECARNE</div>
+      <h1>Registro de incidencias</h1>
+      <form id="formEntrada" novalidate>
+        <label for="entradaNombre">Tu nombre</label>
+        <input id="entradaNombre" type="text" autocomplete="name" maxlength="80" required>
+        <label for="entradaClave">Clave</label>
+        <input id="entradaClave" type="password" autocomplete="current-password" required>
+        <p id="entradaMensaje" class="mensaje oculto" role="alert"></p>
+        <button id="btnEntrar" type="submit" class="btn btn-principal">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Aplicación -->
+  <div id="app" class="oculto">
+
+    <header class="cabecera">
+      <div class="cabecera-fila">
+        <div class="marca">ARCECARNE <span>Incidencias</span></div>
+        <div class="usuario">
+          <span id="nombreUsuario"></span>
+          <button id="btnSalir" type="button" class="enlace">Salir</button>
+        </div>
+      </div>
+      <nav class="pestanas" role="tablist">
+        <button type="button" class="pestana activa" data-vista="vistaRegistrar" role="tab">Registrar</button>
+        <button type="button" class="pestana" data-vista="vistaPanel" role="tab">Panel</button>
+        <button type="button" class="pestana" data-vista="vistaAyuda" role="tab">Ayuda</button>
+      </nav>
+
+      <!-- Aviso de pendientes -->
+      <div id="avisoPendientes" class="aviso-pendientes oculto" role="status">
+        <div class="aviso-fila">
+          <strong id="avisoTexto"></strong>
+          <div class="aviso-botones">
+            <button id="btnVerPendientes" type="button" class="btn btn-mini btn-claro">Ver</button>
+            <button id="btnReintentarCola" type="button" class="btn btn-mini">Reintentar ahora</button>
+          </div>
+        </div>
+        <ul id="listaPendientes" class="lista-pendientes oculto"></ul>
+      </div>
+    </header>
+
+    <main>
+
+      <!-- Registrar -->
+      <section id="vistaRegistrar" class="vista">
+        <div id="mensajeRegistro" class="mensaje oculto" role="alert"></div>
+
+        <form id="formIncidencia" novalidate>
+          <div id="avisoCorreccion" class="mensaje mensaje-info oculto"></div>
+
+          <fieldset>
+            <legend>Cliente y pedido</legend>
+            <label for="fCliente">Cliente <b>*</b></label>
+            <input id="fCliente" name="cliente" type="text" maxlength="150" required>
+
+            <div class="dos-columnas">
+              <div>
+                <label for="fCodigoCliente">Código cliente</label>
+                <input id="fCodigoCliente" name="codigoCliente" type="text" maxlength="40" inputmode="text">
+              </div>
+              <div>
+                <label for="fPedido">Pedido o albarán</label>
+                <input id="fPedido" name="pedido" type="text" maxlength="60">
+              </div>
+            </div>
+
+            <div class="dos-columnas">
+              <div>
+                <label for="fComercial">Comercial <b>*</b></label>
+                <select id="fComercial" name="comercial" required></select>
+              </div>
+              <div>
+                <label for="fFecha">Fecha incidencia <b>*</b></label>
+                <input id="fFecha" name="fechaIncidencia" type="datetime-local" required>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Qué ha pasado</legend>
+            <label for="fTipo">Tipo <b>*</b></label>
+            <select id="fTipo" name="tipo" required></select>
+
+            <div class="dos-columnas">
+              <div>
+                <label for="fCategoria">Categoría</label>
+                <select id="fCategoria" name="categoria"></select>
+              </div>
+              <div id="bloqueClasificacion" class="oculto">
+                <label for="fClasificacion">Clasificación</label>
+                <select id="fClasificacion" name="clasificacion"></select>
+              </div>
+            </div>
+
+            <div class="dos-columnas">
+              <div>
+                <label for="fPieza">Pieza o producto</label>
+                <input id="fPieza" name="pieza" type="text" maxlength="150">
+              </div>
+              <div>
+                <label for="fCantidad">Cantidad afectada</label>
+                <input id="fCantidad" name="cantidad" type="text" maxlength="60" placeholder="Ej.: 2 piezas, 3,5 kg">
+              </div>
+            </div>
+
+            <label for="fDescripcion">Descripción <b>*</b></label>
+            <textarea id="fDescripcion" name="descripcion" rows="4" maxlength="3000" required
+              placeholder="Qué ha pasado, cómo se ha detectado y qué ha pedido el cliente"></textarea>
+
+            <div class="dos-columnas">
+              <div>
+                <label for="fDetectada">Detectada por</label>
+                <select id="fDetectada" name="detectadaPor"></select>
+              </div>
+              <div>
+                <label for="fAfecta">Afecta al servicio</label>
+                <select id="fAfecta" name="afectaServicio"></select>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Fotos <span class="nota">(hasta 3)</span></legend>
+            <div id="fotos" class="fotos"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Solución</legend>
+            <div class="dos-columnas">
+              <div>
+                <label for="fSolucion">Solución</label>
+                <select id="fSolucion" name="solucion"></select>
+              </div>
+              <div>
+                <label for="fEstado">Estado</label>
+                <select id="fEstado" name="estado"></select>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="acciones-form">
+            <button id="btnRegistrar" type="submit" class="btn btn-principal">Registrar</button>
+            <button id="btnReintentarForm" type="button" class="btn btn-claro oculto">Reintentar</button>
+            <button id="btnLimpiar" type="button" class="enlace">Vaciar formulario</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Panel -->
+      <section id="vistaPanel" class="vista oculto">
+        <div class="filtros">
+          <div>
+            <label for="filtroPeriodo">Periodo</label>
+            <select id="filtroPeriodo">
+              <option value="7">Últimos 7 días</option>
+              <option value="30" selected>Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+              <option value="anio">Este año</option>
+              <option value="todo">Todo</option>
+            </select>
+          </div>
+          <div>
+            <label for="filtroComercial">Comercial</label>
+            <select id="filtroComercial"></select>
+          </div>
+          <div>
+            <label for="filtroTipo">Tipo</label>
+            <select id="filtroTipo"></select>
+          </div>
+          <div>
+            <label for="filtroEstado">Estado</label>
+            <select id="filtroEstado"></select>
+          </div>
+        </div>
+        <div class="panel-barra">
+          <span id="panelActualizado" class="nota"></span>
+          <button id="btnActualizarPanel" type="button" class="btn btn-mini">Actualizar</button>
+        </div>
+
+        <div id="mensajePanel" class="mensaje oculto" role="alert"></div>
+
+        <div class="indicadores">
+          <div class="indicador"><span id="kTotal">–</span><small>Incidencias</small></div>
+          <div class="indicador"><span id="kAbiertas">–</span><small>Abiertas</small></div>
+          <div class="indicador"><span id="kClientes">–</span><small>Clientes afectados</small></div>
+          <div class="indicador"><span id="kDias">–</span><small>Días medios hasta resolver</small></div>
+        </div>
+
+        <div class="desgloses">
+          <div class="tarjeta"><h3>Por tipo</h3><div id="dTipo"></div></div>
+          <div class="tarjeta"><h3>Por comercial</h3><div id="dComercial"></div></div>
+          <div class="tarjeta"><h3>Por producto</h3><div id="dProducto"></div></div>
+          <div class="tarjeta"><h3>Por día de la semana</h3><div id="dDia"></div></div>
+          <div class="tarjeta"><h3>Quién la detecta</h3><div id="dDetecta"></div></div>
+          <div class="tarjeta"><h3>Clientes con más de una incidencia</h3><div id="dRepetidos"></div></div>
+        </div>
+
+        <h2 class="titulo-lista">Incidencias <span id="cuentaLista" class="nota"></span></h2>
+        <div id="listaIncidencias" class="lista-incidencias"></div>
+      </section>
+
+      <!-- Ayuda -->
+      <section id="vistaAyuda" class="vista oculto">
+        <div class="tarjeta texto-ayuda">
+          <h3>Cómo se registra</h3>
+          <p>Rellena los campos con <b>*</b> y pulsa «Registrar». Puedes añadir hasta 3 fotos: con la cámara o desde la galería.</p>
+
+          <h3>Sin cobertura</h3>
+          <p>Si no hay conexión, la incidencia se guarda en el teléfono y se envía sola cuando vuelva la cobertura. Arriba verás cuántas quedan pendientes. Con «Reintentar ahora» lo intentas en el momento.</p>
+          <p>Ten en cuenta:</p>
+          <ul>
+            <li>La página tiene que haberse abierto con conexión. Sin cobertura puedes rellenar y guardar, pero no abrir la aplicación desde cero.</li>
+            <li>Las pendientes solo se envían con la página abierta. Si la cierras, se envían la próxima vez que la abras.</li>
+            <li>Las pendientes se guardan en este teléfono y en este navegador. Si borras los datos del navegador, se pierden.</li>
+          </ul>
+
+          <h3>Pendientes con error</h3>
+          <p>Si una pendiente no se puede enviar por clave incorrecta o por datos que faltan, no se reintenta sola. Ábrela con «Corregir», revisa los datos y vuelve a registrarla, o descártala.</p>
+
+          <h3>Cerrar una incidencia</h3>
+          <p>En «Panel», abre la incidencia, elige la solución, escribe una nota si hace falta y pulsa «Marcar como resuelta». Si hay que volver a ella, usa «Reabrir».</p>
+
+          <h3>Acceso directo en el móvil</h3>
+          <p>Abre esta página en el navegador del teléfono y usa «Añadir a pantalla de inicio».</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="cargando" class="cargando oculto"><div class="girando"></div></div>
+
+  <?!= incluir('App') ?>
+</body>
+</html>

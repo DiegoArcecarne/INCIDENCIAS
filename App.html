@@ -1,0 +1,1215 @@
+<script>
+(function () {
+  'use strict';
+
+  // Listas cerradas que vienen de Config.gs
+  var L = <?!= listasParaPagina_() ?>;
+
+  var CLAVE_USUARIO = 'arcecarne_incidencias_usuario';
+  var BD_NOMBRE = 'arcecarne_incidencias';
+  var BD_ALMACEN = 'pendientes';
+  var TIEMPO_MAX_ENVIO = 30000;
+  var TIEMPO_MAX_LECTURA = 60000;
+  var DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  var REQUERIDOS = [
+    { id: 'fCliente', campo: 'cliente', nombre: 'cliente' },
+    { id: 'fComercial', campo: 'comercial', nombre: 'comercial' },
+    { id: 'fFecha', campo: 'fechaIncidencia', nombre: 'fecha' },
+    { id: 'fTipo', campo: 'tipo', nombre: 'tipo' },
+    { id: 'fDescripcion', campo: 'descripcion', nombre: 'descripción' }
+  ];
+
+  var usuario = null;          // { nombre, clave }
+  var bd = null;               // conexión IndexedDB
+  var bdDisponible = false;
+  var fotosForm = [];          // [{ base64 }] por hueco
+  var correccion = null;       // { id, fechaCreacion, creada } al corregir una pendiente o reintentar
+  var registrando = false;
+  var incidenciasPanel = null;
+  var abiertaEnPanel = null;
+  var colaEnMarcha = false;
+  var colaPromesa = Promise.resolve();
+  var paseEsperando = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  // -------------------------------------------------------------------------
+  // Utilidades
+  // -------------------------------------------------------------------------
+
+  function dos(n) { return (n < 10 ? '0' : '') + n; }
+
+  /** Date -> 'yyyy-MM-dd HH:mm' (hora del teléfono) */
+  function formatearFecha(f) {
+    return f.getFullYear() + '-' + dos(f.getMonth() + 1) + '-' + dos(f.getDate()) +
+      ' ' + dos(f.getHours()) + ':' + dos(f.getMinutes());
+  }
+
+  /** 'yyyy-MM-dd HH:mm' -> Date, o null */
+  function leerFecha(t) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(t || ''));
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  }
+
+  function valorFechaInput(f) {
+    return formatearFecha(f).replace(' ', 'T');
+  }
+
+  function horaCorta(ms) {
+    var f = new Date(ms);
+    var hoy = new Date();
+    var hora = dos(f.getHours()) + ':' + dos(f.getMinutes());
+    if (f.toDateString() === hoy.toDateString()) return hora;
+    return dos(f.getDate()) + '/' + dos(f.getMonth() + 1) + ' ' + hora;
+  }
+
+  /** INC-AAMMDD-HHMMSS-NNN */
+  function generarId(f) {
+    var nnn = ('00' + Math.floor(Math.random() * 1000)).slice(-3);
+    return 'INC-' + String(f.getFullYear()).slice(-2) + dos(f.getMonth() + 1) + dos(f.getDate()) +
+      '-' + dos(f.getHours()) + dos(f.getMinutes()) + dos(f.getSeconds()) + '-' + nnn;
+  }
+
+  function el(etiqueta, clase, texto) {
+    var e = document.createElement(etiqueta);
+    if (clase) e.className = clase;
+    if (texto !== undefined && texto !== null) e.textContent = texto;
+    return e;
+  }
+
+  function vaciar(nodo) { while (nodo.firstChild) nodo.removeChild(nodo.firstChild); }
+
+  function rellenarSelect(select, opciones, primera) {
+    vaciar(select);
+    if (primera) {
+      var o = el('option', null, primera.texto);
+      o.value = primera.valor;
+      select.appendChild(o);
+    }
+    opciones.forEach(function (v) {
+      var op = el('option', null, v);
+      op.value = v;
+      select.appendChild(op);
+    });
+  }
+
+  function formatoNumero(n, decimales) {
+    try {
+      return n.toLocaleString('es-ES', { maximumFractionDigits: decimales, minimumFractionDigits: 0 });
+    } catch (e) {
+      return String(Math.round(n * 10) / 10).replace('.', ',');
+    }
+  }
+
+  var temporizadorMensaje = {};
+  function mostrarMensaje(id, texto, tipo) {
+    var caja = $(id);
+    caja.textContent = texto;
+    caja.className = 'mensaje' + (tipo === 'ok' ? ' mensaje-ok' : tipo === 'info' ? ' mensaje-info' : '');
+    clearTimeout(temporizadorMensaje[id]);
+    if (tipo === 'ok') {
+      temporizadorMensaje[id] = setTimeout(function () { ocultarMensaje(id); }, 8000);
+    }
+  }
+  function ocultarMensaje(id) { $(id).className = 'mensaje oculto'; }
+
+  function cargando(si) { $('cargando').classList.toggle('oculto', !si); }
+
+  // -------------------------------------------------------------------------
+  // Datos del usuario en el navegador
+  // -------------------------------------------------------------------------
+
+  function leerUsuario() {
+    try {
+      var t = window.localStorage.getItem(CLAVE_USUARIO);
+      return t ? JSON.parse(t) : null;
+    } catch (e) { return null; }
+  }
+  function guardarUsuario(u) {
+    try { window.localStorage.setItem(CLAVE_USUARIO, JSON.stringify(u)); } catch (e) { /* solo en memoria */ }
+  }
+  function borrarClaveGuardada() {
+    try {
+      var u = leerUsuario();
+      if (u) window.localStorage.setItem(CLAVE_USUARIO, JSON.stringify({ nombre: u.nombre }));
+    } catch (e) { /* nada */ }
+  }
+
+  // -------------------------------------------------------------------------
+  // Llamadas al servidor
+  // -------------------------------------------------------------------------
+
+  /**
+   * Llama a una función de Codigo.gs. Rechaza con { tipo: 'red' | 'tiempo', mensaje }
+   * si falla la conexión o tarda más de tiempoMax.
+   */
+  function llamar(funcion, args, tiempoMax) {
+    return new Promise(function (resolver, rechazar) {
+      var terminado = false;
+      var reloj = setTimeout(function () {
+        if (terminado) return;
+        terminado = true;
+        rechazar({ tipo: 'tiempo', mensaje: 'El servidor no ha respondido a tiempo.' });
+      }, tiempoMax);
+
+      var ejecutor = google.script.run
+        .withSuccessHandler(function (r) {
+          clearTimeout(reloj);
+          if (terminado) {
+            // Llegó tarde: si era un alta y entró bien, se quita de la cola.
+            if (funcion === 'registrarIncidencia' && r && r.ok) {
+              borrarPendiente(r.id).then(actualizarAviso);
+            }
+            return;
+          }
+          terminado = true;
+          resolver(r);
+        })
+        .withFailureHandler(function (e) {
+          clearTimeout(reloj);
+          if (terminado) return;
+          terminado = true;
+          rechazar({ tipo: 'red', mensaje: (e && e.message) || String(e) });
+        });
+      ejecutor[funcion].apply(ejecutor, args);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // IndexedDB: cola de pendientes
+  // -------------------------------------------------------------------------
+
+  function abrirBD() {
+    return new Promise(function (resolver) {
+      try {
+        if (!window.indexedDB) return resolver(false);
+        var pet = window.indexedDB.open(BD_NOMBRE, 1);
+        pet.onupgradeneeded = function () {
+          try {
+            if (!pet.result.objectStoreNames.contains(BD_ALMACEN)) {
+              pet.result.createObjectStore(BD_ALMACEN, { keyPath: 'id' });
+            }
+          } catch (e) { /* nada */ }
+        };
+        pet.onsuccess = function () {
+          try {
+            bd = pet.result;
+            bdDisponible = true;
+            resolver(true);
+          } catch (e) { resolver(false); }
+        };
+        pet.onerror = function () { resolver(false); };
+        pet.onblocked = function () { resolver(false); };
+      } catch (e) {
+        resolver(false);
+      }
+    });
+  }
+
+  /** Ejecuta una operación en el almacén. Resuelve { ok, valor }. Nunca rechaza. */
+  function operarBD(modo, operacion) {
+    return new Promise(function (resolver) {
+      if (!bd) return resolver({ ok: false });
+      try {
+        var tx = bd.transaction(BD_ALMACEN, modo);
+        var pet = operacion(tx.objectStore(BD_ALMACEN));
+        var valor;
+        if (pet) pet.onsuccess = function () { valor = pet.result; };
+        tx.oncomplete = function () { resolver({ ok: true, valor: valor }); };
+        tx.onerror = function () { resolver({ ok: false }); };
+        tx.onabort = function () { resolver({ ok: false }); };
+      } catch (e) {
+        resolver({ ok: false });
+      }
+    });
+  }
+
+  function guardarPendiente(reg) {
+    return operarBD('readwrite', function (s) { return s.put(reg); }).then(function (r) { return r.ok; });
+  }
+  function borrarPendiente(id) {
+    return operarBD('readwrite', function (s) { return s.delete(id); }).then(function (r) { return r.ok; });
+  }
+  /** Resuelve { ok, valor } donde valor es el registro o undefined si ya no está. */
+  function leerPendiente(id) {
+    return operarBD('readonly', function (s) { return s.get(id); });
+  }
+  function listarPendientes() {
+    return operarBD('readonly', function (s) { return s.getAll(); }).then(function (r) {
+      var lista = r.ok && Array.isArray(r.valor) ? r.valor : [];
+      return lista.sort(function (a, b) { return a.creada - b.creada; });
+    });
+  }
+
+  /**
+   * Envía una incidencia guardada. Resuelve:
+   *   { resultado: 'ok' }                         registrada (o ya estaba)
+   *   { resultado: 'error', codigo, mensaje }     clave o datos: queda marcada con error
+   *   { resultado: 'pendiente', mensaje }         sin conexión o tiempo agotado: sigue en cola
+   */
+  function enviarPendiente(reg) {
+    return llamar('registrarIncidencia', [usuario.clave, reg.datos], TIEMPO_MAX_ENVIO).then(function (r) {
+      if (r && r.ok) {
+        return borrarPendiente(reg.id).then(function () { return { resultado: 'ok', duplicada: !!r.duplicada }; });
+      }
+      reg.estado = 'error';
+      reg.codigo = (r && r.codigo) || 'DATOS';
+      reg.error = (r && r.mensaje) || 'Error al registrar.';
+      return guardarPendiente(reg).then(function () {
+        return { resultado: 'error', codigo: reg.codigo, mensaje: reg.error };
+      });
+    }, function (fallo) {
+      return { resultado: 'pendiente', mensaje: fallo.mensaje };
+    });
+  }
+
+  /** Recorre la cola de una en una, en orden. Para al primer fallo de conexión o de clave. */
+  function pasarCola() {
+    if (!bdDisponible || !usuario || !usuario.clave) return Promise.resolve(0);
+    colaEnMarcha = true;
+    pintarBotonCola();
+    var enviadas = 0;
+    return listarPendientes().then(function (lista) {
+      var cola = lista.filter(function (r) { return r.estado === 'pendiente'; });
+      function siguiente(i) {
+        if (i >= cola.length) return Promise.resolve();
+        return enviarPendiente(cola[i]).then(function (res) {
+          if (res.resultado === 'ok') enviadas++;
+          return actualizarAviso().then(function () {
+            if (res.resultado === 'pendiente') return null;
+            if (res.codigo === 'CLAVE') {
+              avisarClaveIncorrecta();
+              return null;
+            }
+            return siguiente(i + 1);
+          });
+        });
+      }
+      return siguiente(0);
+    }).then(function () {
+      colaEnMarcha = false;
+      pintarBotonCola();
+      return actualizarAviso().then(function () { return enviadas; });
+    }, function () {
+      colaEnMarcha = false;
+      pintarBotonCola();
+      return enviadas;
+    });
+  }
+
+  /** Pide un pase de la cola. Nunca hay dos a la vez; si ya hay uno esperando, se reutiliza. */
+  function procesarCola() {
+    if (paseEsperando) return paseEsperando;
+    var pase = colaPromesa.then(function () {
+      paseEsperando = null;
+      return pasarCola();
+    });
+    paseEsperando = pase;
+    colaPromesa = pase.catch(function () { return 0; });
+    return pase;
+  }
+
+  /** Envío automático (al abrir, al recuperar conexión y cada 60 s). */
+  function procesarColaAutomatica() {
+    procesarCola().then(function (n) {
+      if (n > 0) {
+        mostrarMensaje('mensajeRegistro',
+          n === 1 ? 'Se ha enviado 1 incidencia pendiente.' : 'Se han enviado ' + n + ' incidencias pendientes.', 'ok');
+        if (incidenciasPanel) cargarPanel(true);
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Aviso de pendientes
+  // -------------------------------------------------------------------------
+
+  function pintarBotonCola() {
+    var b = $('btnReintentarCola');
+    b.disabled = colaEnMarcha;
+    b.textContent = colaEnMarcha ? 'Enviando…' : 'Reintentar ahora';
+  }
+
+  function actualizarAviso() {
+    if (!bdDisponible) {
+      $('avisoPendientes').classList.add('oculto');
+      return Promise.resolve();
+    }
+    return listarPendientes().then(function (lista) {
+      var aviso = $('avisoPendientes');
+      if (!lista.length) {
+        aviso.classList.add('oculto');
+        $('listaPendientes').classList.add('oculto');
+        $('btnVerPendientes').textContent = 'Ver';
+        return;
+      }
+      aviso.classList.remove('oculto');
+      var conError = lista.filter(function (r) { return r.estado === 'error'; }).length;
+      var texto = lista.length === 1 ? '1 incidencia pendiente de enviar' : lista.length + ' incidencias pendientes de enviar';
+      if (conError) texto += ' (' + conError + ' con error)';
+      $('avisoTexto').textContent = texto;
+
+      var ul = $('listaPendientes');
+      vaciar(ul);
+      lista.forEach(function (reg) {
+        var li = el('li', reg.estado === 'error' ? 'con-error' : '');
+        var d = reg.datos || {};
+        li.appendChild(el('div', null, (d.cliente || 'Sin cliente') + ' · ' + (d.tipo || 'Sin tipo') + ' · ' + horaCorta(reg.creada)));
+        if (reg.estado === 'error') {
+          li.appendChild(el('div', 'pend-error', reg.error || 'Error al registrar.'));
+        }
+        var botones = el('div', 'pend-botones');
+        if (reg.estado === 'error') {
+          var bR = el('button', 'btn btn-mini', 'Reintentar');
+          bR.type = 'button';
+          bR.addEventListener('click', function () { reintentarConError(reg.id); });
+          botones.appendChild(bR);
+          var bC = el('button', 'btn btn-mini btn-claro', 'Corregir');
+          bC.type = 'button';
+          bC.addEventListener('click', function () { corregirPendiente(reg.id); });
+          botones.appendChild(bC);
+        }
+        var bD = el('button', 'btn btn-mini btn-peligro', 'Descartar');
+        bD.type = 'button';
+        bD.addEventListener('click', function () { descartarPendiente(reg.id); });
+        botones.appendChild(bD);
+        li.appendChild(botones);
+        ul.appendChild(li);
+      });
+    });
+  }
+
+  function reintentarConError(id) {
+    leerPendiente(id).then(function (r) {
+      if (!r.ok || !r.valor) return;
+      r.valor.estado = 'pendiente';
+      r.valor.error = '';
+      r.valor.codigo = '';
+      return guardarPendiente(r.valor).then(function () {
+        return actualizarAviso();
+      }).then(procesarColaAutomatica);
+    });
+  }
+
+  function descartarPendiente(id) {
+    leerPendiente(id).then(function (r) {
+      if (!r.ok || !r.valor) return actualizarAviso();
+      var d = r.valor.datos || {};
+      var ok = window.confirm('¿Descartar la incidencia de «' + (d.cliente || 'sin cliente') +
+        '»? Se borrará del teléfono y no se enviará.');
+      if (!ok) return;
+      return borrarPendiente(id).then(function () {
+        if (correccion && correccion.id === id) limpiarFormulario();
+        return actualizarAviso();
+      });
+    });
+  }
+
+  function corregirPendiente(id) {
+    leerPendiente(id).then(function (r) {
+      if (!r.ok || !r.valor) return actualizarAviso();
+      cargarEnFormulario(r.valor);
+      mostrarVista('vistaRegistrar');
+      $('listaPendientes').classList.add('oculto');
+      $('btnVerPendientes').textContent = 'Ver';
+      window.scrollTo(0, 0);
+    });
+  }
+
+  function avisarClaveIncorrecta() {
+    mostrarMensaje('mensajeRegistro',
+      'La clave guardada no es correcta. Pulsa «Salir» y vuelve a entrar con la clave buena. Las pendientes se conservan.', 'error');
+  }
+
+  // -------------------------------------------------------------------------
+  // Entrada
+  // -------------------------------------------------------------------------
+
+  function mostrarEntrada(mensaje) {
+    $('app').classList.add('oculto');
+    $('pantallaEntrada').classList.remove('oculto');
+    var u = leerUsuario();
+    if (u && u.nombre) $('entradaNombre').value = u.nombre;
+    $('entradaClave').value = '';
+    if (mensaje) {
+      $('entradaMensaje').textContent = mensaje;
+      $('entradaMensaje').classList.remove('oculto');
+    } else {
+      $('entradaMensaje').classList.add('oculto');
+    }
+  }
+
+  function mostrarApp() {
+    $('pantallaEntrada').classList.add('oculto');
+    $('app').classList.remove('oculto');
+    $('nombreUsuario').textContent = usuario.nombre;
+  }
+
+  function alEntrar(e) {
+    e.preventDefault();
+    var nombre = $('entradaNombre').value.trim();
+    var clave = $('entradaClave').value;
+    var msg = $('entradaMensaje');
+    if (!nombre || !clave) {
+      msg.textContent = 'Escribe tu nombre y la clave.';
+      msg.classList.remove('oculto');
+      return;
+    }
+    $('btnEntrar').disabled = true;
+    msg.classList.add('oculto');
+    llamar('comprobarAcceso', [clave], TIEMPO_MAX_ENVIO).then(function (r) {
+      $('btnEntrar').disabled = false;
+      if (!r || !r.ok) {
+        msg.textContent = 'Clave incorrecta.';
+        msg.classList.remove('oculto');
+        return;
+      }
+      usuario = { nombre: nombre, clave: clave };
+      guardarUsuario(usuario);
+      mostrarApp();
+      // Las pendientes que fallaron por clave vuelven a la cola con la clave nueva.
+      listarPendientes().then(function (lista) {
+        var cambios = lista.filter(function (reg) { return reg.estado === 'error' && reg.codigo === 'CLAVE'; })
+          .map(function (reg) {
+            reg.estado = 'pendiente';
+            reg.error = '';
+            reg.codigo = '';
+            return guardarPendiente(reg);
+          });
+        return Promise.all(cambios);
+      }).then(function () {
+        actualizarAviso();
+        procesarColaAutomatica();
+      });
+    }, function (fallo) {
+      $('btnEntrar').disabled = false;
+      msg.textContent = 'No se ha podido comprobar la clave. Revisa la conexión. (' + fallo.mensaje + ')';
+      msg.classList.remove('oculto');
+    });
+  }
+
+  function alSalir() {
+    usuario = null;
+    borrarClaveGuardada();
+    incidenciasPanel = null;
+    mostrarEntrada();
+  }
+
+  // -------------------------------------------------------------------------
+  // Formulario
+  // -------------------------------------------------------------------------
+
+  function prepararFormulario() {
+    rellenarSelect($('fComercial'), L.comerciales, { valor: '', texto: 'Elige comercial' });
+    rellenarSelect($('fTipo'), L.tipos, { valor: '', texto: 'Elige tipo' });
+    rellenarSelect($('fCategoria'), L.categorias, { valor: '', texto: 'Elige categoría' });
+    rellenarSelect($('fClasificacion'), L.clasificaciones);
+    rellenarSelect($('fDetectada'), L.detectadaPor, { valor: '', texto: 'Sin indicar' });
+    rellenarSelect($('fAfecta'), L.afectaServicio, { valor: '', texto: 'Sin indicar' });
+    rellenarSelect($('fSolucion'), L.soluciones);
+    rellenarSelect($('fEstado'), L.estados);
+    prepararFotos();
+    valoresPorDefecto();
+  }
+
+  function valoresPorDefecto() {
+    $('fFecha').value = valorFechaInput(new Date());
+    $('fSolucion').value = 'Pendiente';
+    $('fEstado').value = 'Abierta';
+    $('fClasificacion').value = 'No lo sé';
+    alCambiarCategoria();
+  }
+
+  function alCambiarCategoria() {
+    var lleva = L.categoriasConClasificacion.indexOf($('fCategoria').value) >= 0;
+    $('bloqueClasificacion').classList.toggle('oculto', !lleva);
+  }
+
+  function leerFormulario() {
+    var categoria = $('fCategoria').value;
+    var lleva = L.categoriasConClasificacion.indexOf(categoria) >= 0;
+    return {
+      cliente: $('fCliente').value.trim(),
+      codigoCliente: $('fCodigoCliente').value.trim(),
+      comercial: $('fComercial').value,
+      pedido: $('fPedido').value.trim(),
+      fechaIncidencia: ($('fFecha').value || '').replace('T', ' ').slice(0, 16),
+      tipo: $('fTipo').value,
+      categoria: categoria || 'No aplica',
+      clasificacion: lleva ? $('fClasificacion').value : 'No aplica',
+      pieza: $('fPieza').value.trim(),
+      cantidad: $('fCantidad').value.trim(),
+      descripcion: $('fDescripcion').value.trim(),
+      detectadaPor: $('fDetectada').value,
+      afectaServicio: $('fAfecta').value,
+      solucion: $('fSolucion').value,
+      estado: $('fEstado').value
+    };
+  }
+
+  function validarFormulario(datos) {
+    var faltan = [];
+    REQUERIDOS.forEach(function (r) {
+      var vacio = !datos[r.campo];
+      $(r.id).classList.toggle('campo-error', vacio);
+      if (vacio) faltan.push(r.nombre);
+    });
+    return faltan;
+  }
+
+  function limpiarFormulario() {
+    $('formIncidencia').reset();
+    REQUERIDOS.forEach(function (r) { $(r.id).classList.remove('campo-error'); });
+    for (var i = 0; i < L.maxFotos; i++) fotosForm[i] = null;
+    pintarFotos();
+    correccion = null;
+    $('avisoCorreccion').classList.add('oculto');
+    $('btnReintentarForm').classList.add('oculto');
+    valoresPorDefecto();
+  }
+
+  function cargarEnFormulario(reg) {
+    limpiarFormulario();
+    var d = reg.datos || {};
+    $('fCliente').value = d.cliente || '';
+    $('fCodigoCliente').value = d.codigoCliente || '';
+    $('fComercial').value = d.comercial || '';
+    $('fPedido').value = d.pedido || '';
+    $('fFecha').value = (d.fechaIncidencia || '').replace(' ', 'T');
+    $('fTipo').value = d.tipo || '';
+    $('fCategoria').value = d.categoria && d.categoria !== 'No aplica' ? d.categoria : '';
+    if (d.clasificacion && d.clasificacion !== 'No aplica') $('fClasificacion').value = d.clasificacion;
+    $('fPieza').value = d.pieza || '';
+    $('fCantidad').value = d.cantidad || '';
+    $('fDescripcion').value = d.descripcion || '';
+    $('fDetectada').value = d.detectadaPor || '';
+    $('fAfecta').value = d.afectaServicio || '';
+    $('fSolucion').value = d.solucion || 'Pendiente';
+    $('fEstado').value = d.estado || 'Abierta';
+    alCambiarCategoria();
+    (d.fotos || []).forEach(function (f, i) {
+      if (i < L.maxFotos && f && f.base64) fotosForm[i] = { base64: f.base64 };
+    });
+    pintarFotos();
+    correccion = { id: reg.id, fechaCreacion: d.fechaCreacion, creada: reg.creada };
+    var aviso = $('avisoCorreccion');
+    aviso.textContent = 'Estás corrigiendo la pendiente ' + reg.id +
+      (reg.error ? ' (' + reg.error + ')' : '') + '. Al registrar, se sustituye.';
+    aviso.classList.remove('oculto');
+  }
+
+  function alRegistrar(e) {
+    if (e) e.preventDefault();
+    if (registrando) return;
+    ocultarMensaje('mensajeRegistro');
+
+    var datos = leerFormulario();
+    var faltan = validarFormulario(datos);
+    if (faltan.length) {
+      mostrarMensaje('mensajeRegistro', 'Faltan datos obligatorios: ' + faltan.join(', ') + '.', 'error');
+      window.scrollTo(0, 0);
+      return;
+    }
+
+    var ahora = new Date();
+    datos.id = correccion ? correccion.id : generarId(ahora);
+    datos.fechaCreacion = correccion && correccion.fechaCreacion ? correccion.fechaCreacion : formatearFecha(ahora);
+    datos.registradoPor = usuario.nombre;
+    datos.fotos = fotosForm.filter(Boolean).map(function (f) { return { base64: f.base64, tipo: 'image/jpeg' }; });
+
+    var reg = {
+      id: datos.id,
+      datos: datos,
+      estado: 'pendiente',
+      error: '',
+      codigo: '',
+      creada: correccion && correccion.creada ? correccion.creada : ahora.getTime()
+    };
+
+    registrando = true;
+    $('btnRegistrar').disabled = true;
+    $('btnReintentarForm').disabled = true;
+    cargando(true);
+
+    var guardado = bdDisponible ? guardarPendiente(reg) : Promise.resolve(false);
+    guardado.then(function (enCola) {
+      return enCola ? registrarConCola(reg) : registrarDirecto(reg);
+    }).then(terminarRegistro, terminarRegistro);
+  }
+
+  function terminarRegistro() {
+    registrando = false;
+    $('btnRegistrar').disabled = false;
+    $('btnReintentarForm').disabled = false;
+    cargando(false);
+    window.scrollTo(0, 0);
+  }
+
+  /** La incidencia ya está guardada en el teléfono: se limpia el formulario y se envía con la cola. */
+  function registrarConCola(reg) {
+    limpiarFormulario();
+    return actualizarAviso().then(procesarCola).then(function (enviadas) {
+      return leerPendiente(reg.id).then(function (r) {
+        if (r.ok && !r.valor) {
+          var extra = enviadas > 1 ? ' También se han enviado ' + (enviadas - 1) + ' pendientes.' : '';
+          mostrarMensaje('mensajeRegistro', 'Incidencia registrada. ' + reg.id + '.' + extra, 'ok');
+          if (incidenciasPanel) cargarPanel(true);
+        } else if (r.ok && r.valor && r.valor.estado === 'error') {
+          if (r.valor.codigo === 'CLAVE') {
+            avisarClaveIncorrecta();
+          } else {
+            mostrarMensaje('mensajeRegistro', 'No se ha registrado: ' + r.valor.error +
+              ' Está en pendientes: pulsa «Ver» y después «Corregir».', 'error');
+          }
+        } else {
+          mostrarMensaje('mensajeRegistro', 'Guardada en el teléfono. Se enviará cuando haya cobertura.', 'info');
+        }
+      });
+    });
+  }
+
+  /** Sin IndexedDB: se envía directamente y, si falla, se conserva el formulario. */
+  function registrarDirecto(reg) {
+    return llamar('registrarIncidencia', [usuario.clave, reg.datos], TIEMPO_MAX_ENVIO).then(function (r) {
+      if (r && r.ok) {
+        limpiarFormulario();
+        mostrarMensaje('mensajeRegistro', 'Incidencia registrada. ' + reg.id + '.', 'ok');
+        if (incidenciasPanel) cargarPanel(true);
+        return;
+      }
+      if (r && r.codigo === 'CLAVE') {
+        guardarParaReintento(reg);
+        avisarClaveIncorrecta();
+        return;
+      }
+      guardarParaReintento(reg);
+      mostrarMensaje('mensajeRegistro', 'No se ha registrado: ' + ((r && r.mensaje) || 'error.'), 'error');
+    }, function () {
+      guardarParaReintento(reg);
+      $('btnReintentarForm').classList.remove('oculto');
+      mostrarMensaje('mensajeRegistro',
+        'No se ha podido enviar y este navegador no permite guardarla en el teléfono. ' +
+        'No cierres la página: pulsa «Reintentar» cuando haya cobertura.', 'error');
+    });
+  }
+
+  /** Conserva el ID para que el reintento no cree una incidencia nueva. */
+  function guardarParaReintento(reg) {
+    correccion = { id: reg.id, fechaCreacion: reg.datos.fechaCreacion, creada: reg.creada };
+  }
+
+  // -------------------------------------------------------------------------
+  // Fotos
+  // -------------------------------------------------------------------------
+
+  function prepararFotos() {
+    var cont = $('fotos');
+    vaciar(cont);
+    for (var i = 0; i < L.maxFotos; i++) {
+      fotosForm[i] = null;
+      cont.appendChild(crearHuecoFoto(i));
+    }
+  }
+
+  function crearHuecoFoto(i) {
+    var hueco = el('div', 'foto');
+    hueco.id = 'foto' + i;
+
+    var entrada = el('input');
+    entrada.type = 'file';
+    entrada.accept = 'image/*';
+    entrada.addEventListener('change', function () {
+      var archivo = entrada.files && entrada.files[0];
+      entrada.value = '';
+      if (archivo) alElegirFoto(i, archivo);
+    });
+
+    var boton = el('button', 'foto-boton');
+    boton.type = 'button';
+    boton.appendChild(el('strong', null, '+'));
+    boton.appendChild(document.createTextNode('Foto ' + (i + 1)));
+    boton.addEventListener('click', function () { entrada.click(); });
+
+    var img = el('img', 'oculto');
+    img.alt = 'Foto ' + (i + 1);
+
+    var quitar = el('button', 'foto-quitar oculto', 'Quitar');
+    quitar.type = 'button';
+    quitar.addEventListener('click', function () {
+      fotosForm[i] = null;
+      pintarFotos();
+    });
+
+    hueco.appendChild(entrada);
+    hueco.appendChild(boton);
+    hueco.appendChild(img);
+    hueco.appendChild(quitar);
+    return hueco;
+  }
+
+  function pintarFotos() {
+    for (var i = 0; i < L.maxFotos; i++) {
+      var hueco = $('foto' + i);
+      if (!hueco) continue;
+      var f = fotosForm[i];
+      var img = hueco.querySelector('img');
+      hueco.classList.toggle('con-foto', !!f);
+      hueco.querySelector('.foto-boton').classList.toggle('oculto', !!f);
+      hueco.querySelector('.foto-quitar').classList.toggle('oculto', !f);
+      img.classList.toggle('oculto', !f);
+      if (f) img.src = 'data:image/jpeg;base64,' + f.base64;
+      else img.removeAttribute('src');
+    }
+  }
+
+  function alElegirFoto(i, archivo) {
+    if (archivo.type && archivo.type.indexOf('image/') !== 0) {
+      mostrarMensaje('mensajeRegistro', 'Ese archivo no es una imagen.', 'error');
+      return;
+    }
+    cargando(true);
+    reducirFoto(archivo).then(function (dataUrl) {
+      cargando(false);
+      var base64 = dataUrl.split(',')[1] || '';
+      var bytes = Math.floor(base64.length * 3 / 4);
+      if (!base64) throw new Error('vacía');
+      if (bytes > L.maxBytesFoto) {
+        mostrarMensaje('mensajeRegistro', 'La foto supera 5 MB incluso reducida. Prueba con otra.', 'error');
+        return;
+      }
+      fotosForm[i] = { base64: base64 };
+      pintarFotos();
+    }).catch(function () {
+      cargando(false);
+      mostrarMensaje('mensajeRegistro', 'No se ha podido leer la foto. Prueba con otra.', 'error');
+    });
+  }
+
+  /** Reduce la foto a 1600 px de lado mayor, JPEG calidad 0,8. Devuelve un data URL. */
+  function reducirFoto(archivo) {
+    return new Promise(function (resolver, rechazar) {
+      var url;
+      try { url = URL.createObjectURL(archivo); } catch (e) { return rechazar(e); }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var lado = 1600;
+          var w = img.naturalWidth;
+          var h = img.naturalHeight;
+          var escala = Math.min(1, lado / Math.max(w, h));
+          var cw = Math.max(1, Math.round(w * escala));
+          var ch = Math.max(1, Math.round(h * escala));
+          var lienzo = document.createElement('canvas');
+          lienzo.width = cw;
+          lienzo.height = ch;
+          var ctx = lienzo.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, cw, ch);
+          ctx.drawImage(img, 0, 0, cw, ch);
+          URL.revokeObjectURL(url);
+          resolver(lienzo.toDataURL('image/jpeg', 0.8));
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          rechazar(e);
+        }
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        rechazar(new Error('No es una imagen'));
+      };
+      img.src = url;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Panel
+  // -------------------------------------------------------------------------
+
+  function prepararPanel() {
+    rellenarSelect($('filtroComercial'), L.comerciales, { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroTipo'), L.tipos, { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroEstado'), L.estados, { valor: '', texto: 'Todos' });
+    ['filtroPeriodo', 'filtroComercial', 'filtroTipo', 'filtroEstado'].forEach(function (id) {
+      $(id).addEventListener('change', pintarPanel);
+    });
+    $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
+  }
+
+  function cargarPanel(enSilencio) {
+    if (!usuario) return;
+    if (!enSilencio) cargando(true);
+    $('btnActualizarPanel').disabled = true;
+    llamar('obtenerIncidencias', [usuario.clave], TIEMPO_MAX_LECTURA).then(function (r) {
+      cargando(false);
+      $('btnActualizarPanel').disabled = false;
+      if (!r || !r.ok) {
+        mostrarMensaje('mensajePanel', r && r.codigo === 'CLAVE' ? 'Clave incorrecta. Sal y vuelve a entrar.' : 'No se han podido cargar las incidencias.', 'error');
+        return;
+      }
+      ocultarMensaje('mensajePanel');
+      incidenciasPanel = r.incidencias || [];
+      var f = new Date();
+      $('panelActualizado').textContent = 'Actualizado a las ' + dos(f.getHours()) + ':' + dos(f.getMinutes());
+      pintarPanel();
+    }, function () {
+      cargando(false);
+      $('btnActualizarPanel').disabled = false;
+      if (!enSilencio) mostrarMensaje('mensajePanel', 'No se han podido cargar las incidencias. Revisa la conexión.', 'error');
+    });
+  }
+
+  function fechaDe(inc) {
+    return leerFecha(inc['Fecha incidencia']) || leerFecha(inc['Fecha registro']);
+  }
+
+  function claveCliente(inc) {
+    var codigo = String(inc['Código cliente'] || '').trim().toLowerCase();
+    if (codigo) return 'c:' + codigo;
+    return 'n:' + String(inc['Cliente'] || '').trim().toLowerCase();
+  }
+
+  function filtrar(lista) {
+    var periodo = $('filtroPeriodo').value;
+    var comercial = $('filtroComercial').value;
+    var tipo = $('filtroTipo').value;
+    var estado = $('filtroEstado').value;
+    var ahora = new Date();
+    var desde = null;
+    if (periodo === 'anio') {
+      desde = new Date(ahora.getFullYear(), 0, 1);
+    } else if (periodo !== 'todo') {
+      desde = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - (+periodo - 1));
+    }
+    return lista.filter(function (inc) {
+      if (comercial && inc['Comercial'] !== comercial) return false;
+      if (tipo && inc['Tipo'] !== tipo) return false;
+      if (estado && (inc['Estado'] || 'Abierta') !== estado) return false;
+      if (desde) {
+        var f = fechaDe(inc);
+        if (!f || f < desde) return false;
+      }
+      return true;
+    });
+  }
+
+  function contar(lista, fn) {
+    var mapa = {};
+    lista.forEach(function (inc) {
+      var k = fn(inc);
+      mapa[k] = (mapa[k] || 0) + 1;
+    });
+    return mapa;
+  }
+
+  function pintarBarras(contenedor, mapa, orden) {
+    vaciar(contenedor);
+    var claves = orden || Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a]; });
+    var max = 0;
+    claves.forEach(function (k) { max = Math.max(max, mapa[k] || 0); });
+    if (!max) {
+      contenedor.appendChild(el('p', 'vacio', 'Sin datos en este periodo.'));
+      return;
+    }
+    claves.forEach(function (k) {
+      var n = mapa[k] || 0;
+      var fila = el('div', 'barra');
+      var texto = el('div', 'barra-texto');
+      texto.appendChild(el('span', null, k));
+      texto.appendChild(el('span', null, String(n)));
+      var fondo = el('div', 'barra-fondo');
+      var relleno = el('div', 'barra-relleno');
+      relleno.style.width = (n / max * 100) + '%';
+      fondo.appendChild(relleno);
+      fila.appendChild(texto);
+      fila.appendChild(fondo);
+      contenedor.appendChild(fila);
+    });
+  }
+
+  function pintarPanel() {
+    if (!incidenciasPanel) return;
+    var lista = filtrar(incidenciasPanel);
+
+    // Indicadores
+    $('kTotal').textContent = lista.length;
+    $('kAbiertas').textContent = lista.filter(function (i) { return i['Estado'] !== 'Resuelta'; }).length;
+    var clientes = {};
+    lista.forEach(function (i) { clientes[claveCliente(i)] = true; });
+    $('kClientes').textContent = Object.keys(clientes).length;
+
+    var dias = [];
+    lista.forEach(function (i) {
+      if (i['Estado'] !== 'Resuelta') return;
+      var ini = fechaDe(i);
+      var fin = leerFecha(i['Fecha resolución']);
+      if (ini && fin && fin >= ini) dias.push((fin - ini) / 86400000);
+    });
+    $('kDias').textContent = dias.length
+      ? formatoNumero(dias.reduce(function (a, b) { return a + b; }, 0) / dias.length, 1)
+      : '–';
+
+    // Desgloses
+    pintarBarras($('dTipo'), contar(lista, function (i) { return i['Tipo'] || 'Sin tipo'; }));
+    pintarBarras($('dComercial'), contar(lista, function (i) { return i['Comercial'] || 'Sin asignar'; }));
+    pintarBarras($('dProducto'), contar(lista, function (i) { return i['Categoría'] || 'No aplica'; }));
+    pintarBarras($('dDia'), contar(lista, function (i) {
+      var f = fechaDe(i);
+      return f ? DIAS_SEMANA[(f.getDay() + 6) % 7] : 'Sin fecha';
+    }), DIAS_SEMANA);
+    pintarBarras($('dDetecta'), contar(lista, function (i) { return i['Detectada por'] || 'Sin indicar'; }));
+
+    // Clientes repetidos
+    var grupos = {};
+    lista.forEach(function (i) {
+      var k = claveCliente(i);
+      if (!grupos[k]) grupos[k] = { nombre: i['Cliente'] || 'Sin nombre', n: 0 };
+      grupos[k].n++;
+    });
+    var repetidos = {};
+    Object.keys(grupos).forEach(function (k) {
+      if (grupos[k].n > 1) repetidos[grupos[k].nombre + (k.indexOf('c:') === 0 ? ' (' + k.slice(2).toUpperCase() + ')' : '')] = grupos[k].n;
+    });
+    pintarBarras($('dRepetidos'), repetidos);
+    if (!Object.keys(repetidos).length) {
+      vaciar($('dRepetidos'));
+      $('dRepetidos').appendChild(el('p', 'vacio', 'Ningún cliente repite en este periodo.'));
+    }
+
+    pintarLista(lista);
+  }
+
+  function pintarLista(lista) {
+    var cont = $('listaIncidencias');
+    vaciar(cont);
+    $('cuentaLista').textContent = '(' + lista.length + ')';
+    if (!lista.length) {
+      cont.appendChild(el('p', 'vacio', 'No hay incidencias con estos filtros.'));
+      return;
+    }
+    var ordenada = lista.slice().sort(function (a, b) {
+      var fa = fechaDe(a), fb = fechaDe(b);
+      return (fb ? fb.getTime() : 0) - (fa ? fa.getTime() : 0);
+    });
+    ordenada.forEach(function (inc) { cont.appendChild(crearTarjetaIncidencia(inc)); });
+  }
+
+  function crearTarjetaIncidencia(inc) {
+    var resuelta = inc['Estado'] === 'Resuelta';
+    var tarjeta = el('div', 'incidencia' + (resuelta ? ' resuelta' : ''));
+
+    var cabeza = el('button', 'incidencia-cabeza');
+    cabeza.type = 'button';
+    var l1 = el('div', 'linea1');
+    l1.appendChild(el('span', null, inc['Cliente'] || 'Sin cliente'));
+    l1.appendChild(el('span', 'estado' + (resuelta ? ' resuelta' : ''), inc['Estado'] || 'Abierta'));
+    cabeza.appendChild(l1);
+    cabeza.appendChild(el('div', 'linea2',
+      (inc['Fecha incidencia'] || '') + ' · ' + (inc['Tipo'] || '') + ' · ' + (inc['Comercial'] || '')));
+    tarjeta.appendChild(cabeza);
+
+    var detalle = el('div', 'incidencia-detalle oculto');
+    tarjeta.appendChild(detalle);
+
+    function abrir() {
+      if (!detalle.firstChild) pintarDetalle(detalle, inc);
+      detalle.classList.remove('oculto');
+    }
+    cabeza.addEventListener('click', function () {
+      if (detalle.classList.contains('oculto')) {
+        abrir();
+        abiertaEnPanel = inc['ID'];
+      } else {
+        detalle.classList.add('oculto');
+        abiertaEnPanel = null;
+      }
+    });
+    if (abiertaEnPanel === inc['ID']) abrir();
+    return tarjeta;
+  }
+
+  function pintarDetalle(detalle, inc) {
+    var dl = el('dl');
+    var campos = [
+      'ID', 'Fecha incidencia', 'Fecha creación en móvil', 'Fecha registro', 'Registrado por',
+      'Cliente', 'Código cliente', 'Comercial', 'Pedido o albarán', 'Tipo', 'Categoría',
+      'Clasificación', 'Pieza o producto', 'Cantidad afectada', 'Descripción', 'Detectada por',
+      'Afecta al servicio', 'Solución', 'Estado', 'Fecha resolución', 'Nota resolución'
+    ];
+    campos.forEach(function (c) {
+      if (!inc[c]) return;
+      dl.appendChild(el('dt', null, c));
+      dl.appendChild(el('dd', null, inc[c]));
+    });
+    var fotos = ['Foto 1', 'Foto 2', 'Foto 3'].filter(function (c) { return inc[c]; });
+    if (fotos.length) {
+      dl.appendChild(el('dt', null, 'Fotos'));
+      var dd = el('dd');
+      fotos.forEach(function (c, i) {
+        var a = el('a', null, c);
+        a.href = inc[c];
+        a.target = '_blank';
+        a.rel = 'noopener';
+        if (i) dd.appendChild(document.createTextNode(' · '));
+        dd.appendChild(a);
+      });
+      dl.appendChild(dd);
+    }
+    detalle.appendChild(dl);
+
+    // Cierre o reapertura
+    var resuelta = inc['Estado'] === 'Resuelta';
+    var cierre = el('div', 'cierre');
+    var idSol = 'sol-' + inc['ID'];
+    var idNota = 'nota-' + inc['ID'];
+    var lSol = el('label', null, 'Solución');
+    lSol.htmlFor = idSol;
+    var sSol = el('select');
+    sSol.id = idSol;
+    rellenarSelect(sSol, L.soluciones);
+    sSol.value = inc['Solución'] || 'Pendiente';
+    var lNota = el('label', null, 'Nota resolución');
+    lNota.htmlFor = idNota;
+    var tNota = el('textarea');
+    tNota.id = idNota;
+    tNota.rows = 3;
+    tNota.maxLength = 3000;
+    tNota.value = inc['Nota resolución'] || '';
+    var msg = el('div', 'mensaje oculto');
+
+    var botones = el('div', 'cierre-botones');
+    var bPrincipal = el('button', 'btn btn-mini', resuelta ? 'Reabrir' : 'Marcar como resuelta');
+    bPrincipal.type = 'button';
+    var bGuardar = el('button', 'btn btn-mini btn-claro', 'Guardar cambios');
+    bGuardar.type = 'button';
+    botones.appendChild(bPrincipal);
+    botones.appendChild(bGuardar);
+
+    function guardar(nuevoEstado) {
+      if (nuevoEstado === 'Resuelta' && sSol.value === 'Pendiente') {
+        msg.textContent = 'Elige una solución antes de marcarla como resuelta.';
+        msg.className = 'mensaje';
+        return;
+      }
+      bPrincipal.disabled = true;
+      bGuardar.disabled = true;
+      cargando(true);
+      llamar('actualizarIncidencia', [usuario.clave, inc['ID'], {
+        estado: nuevoEstado,
+        solucion: sSol.value,
+        nota: tNota.value.trim()
+      }], TIEMPO_MAX_ENVIO).then(function (r) {
+        cargando(false);
+        bPrincipal.disabled = false;
+        bGuardar.disabled = false;
+        if (!r || !r.ok) {
+          msg.textContent = (r && r.mensaje) || 'No se ha podido guardar.';
+          msg.className = 'mensaje';
+          return;
+        }
+        for (var i = 0; i < incidenciasPanel.length; i++) {
+          if (incidenciasPanel[i]['ID'] === inc['ID']) incidenciasPanel[i] = r.incidencia;
+        }
+        abiertaEnPanel = inc['ID'];
+        pintarPanel();
+      }, function () {
+        cargando(false);
+        bPrincipal.disabled = false;
+        bGuardar.disabled = false;
+        msg.textContent = 'No se ha podido guardar. Revisa la conexión y vuelve a intentarlo.';
+        msg.className = 'mensaje';
+      });
+    }
+
+    bPrincipal.addEventListener('click', function () { guardar(resuelta ? 'Abierta' : 'Resuelta'); });
+    bGuardar.addEventListener('click', function () { guardar(inc['Estado'] || 'Abierta'); });
+
+    cierre.appendChild(lSol);
+    cierre.appendChild(sSol);
+    cierre.appendChild(lNota);
+    cierre.appendChild(tNota);
+    cierre.appendChild(msg);
+    cierre.appendChild(botones);
+    detalle.appendChild(cierre);
+  }
+
+  // -------------------------------------------------------------------------
+  // Pestañas
+  // -------------------------------------------------------------------------
+
+  function mostrarVista(id) {
+    ['vistaRegistrar', 'vistaPanel', 'vistaAyuda'].forEach(function (v) {
+      $(v).classList.toggle('oculto', v !== id);
+    });
+    var pestanas = document.querySelectorAll('.pestana');
+    for (var i = 0; i < pestanas.length; i++) {
+      pestanas[i].classList.toggle('activa', pestanas[i].getAttribute('data-vista') === id);
+    }
+    if (id === 'vistaPanel' && !incidenciasPanel) cargarPanel(false);
+  }
+
+  // -------------------------------------------------------------------------
+  // Arranque
+  // -------------------------------------------------------------------------
+
+  function iniciar() {
+    prepararFormulario();
+    prepararPanel();
+
+    $('formEntrada').addEventListener('submit', alEntrar);
+    $('btnSalir').addEventListener('click', alSalir);
+    $('formIncidencia').addEventListener('submit', alRegistrar);
+    $('btnReintentarForm').addEventListener('click', alRegistrar);
+    $('btnLimpiar').addEventListener('click', function () {
+      limpiarFormulario();
+      ocultarMensaje('mensajeRegistro');
+    });
+    $('fCategoria').addEventListener('change', alCambiarCategoria);
+    REQUERIDOS.forEach(function (r) {
+      var quitarError = function () { $(r.id).classList.remove('campo-error'); };
+      $(r.id).addEventListener('input', quitarError);
+      $(r.id).addEventListener('change', quitarError);
+    });
+
+    var pestanas = document.querySelectorAll('.pestana');
+    for (var i = 0; i < pestanas.length; i++) {
+      pestanas[i].addEventListener('click', function () { mostrarVista(this.getAttribute('data-vista')); });
+    }
+
+    $('btnVerPendientes').addEventListener('click', function () {
+      var ul = $('listaPendientes');
+      var ver = ul.classList.contains('oculto');
+      ul.classList.toggle('oculto', !ver);
+      this.textContent = ver ? 'Ocultar' : 'Ver';
+    });
+    $('btnReintentarCola').addEventListener('click', procesarColaAutomatica);
+
+    window.addEventListener('online', procesarColaAutomatica);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') procesarColaAutomatica();
+    });
+    setInterval(procesarColaAutomatica, 60000);
+
+    abrirBD().then(function () {
+      usuario = leerUsuario();
+      if (usuario && usuario.nombre && usuario.clave) {
+        mostrarApp();
+        actualizarAviso();
+        procesarColaAutomatica();
+        // Comprueba en segundo plano que la clave guardada sigue siendo válida.
+        llamar('comprobarAcceso', [usuario.clave], TIEMPO_MAX_ENVIO).then(function (r) {
+          if (r && r.codigo === 'CLAVE') {
+            alSalir();
+            mostrarEntrada('La clave ha cambiado. Vuelve a entrar.');
+          }
+        }, function () { /* sin conexión: se sigue con la clave guardada */ });
+      } else {
+        usuario = null;
+        mostrarEntrada();
+      }
+    });
+  }
+
+  iniciar();
+})();
+</script>
