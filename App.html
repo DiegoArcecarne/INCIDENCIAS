@@ -444,6 +444,7 @@
     $('pantallaEntrada').classList.add('oculto');
     $('app').classList.remove('oculto');
     $('nombreUsuario').textContent = usuario.nombre;
+    mostrarVista('vistaPanel');
   }
 
   function alEntrar(e) {
@@ -649,6 +650,7 @@
   /** La incidencia ya está guardada en el teléfono: se limpia el formulario y se envía con la cola. */
   function registrarConCola(reg) {
     limpiarFormulario();
+    mostrarVista('vistaPanel');
     return actualizarAviso().then(procesarCola).then(function (enviadas) {
       return leerPendiente(reg.id).then(function (r) {
         if (r.ok && !r.valor) {
@@ -674,6 +676,7 @@
     return llamar('registrarIncidencia', [usuario.clave, reg.datos], TIEMPO_MAX_ENVIO).then(function (r) {
       if (r && r.ok) {
         limpiarFormulario();
+        mostrarVista('vistaPanel');
         mostrarMensaje('mensajeRegistro', 'Incidencia registrada. ' + reg.id + '.', 'ok');
         if (incidenciasPanel) cargarPanel(true);
         return;
@@ -826,16 +829,6 @@
   // Panel
   // -------------------------------------------------------------------------
 
-  function prepararPanel() {
-    rellenarSelect($('filtroComercial'), L.comerciales, { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroTipo'), L.tipos, { valor: '', texto: 'Todos' });
-    rellenarSelect($('filtroEstado'), L.estados, { valor: '', texto: 'Todos' });
-    ['filtroPeriodo', 'filtroComercial', 'filtroTipo', 'filtroEstado'].forEach(function (id) {
-      $(id).addEventListener('change', pintarPanel);
-    });
-    $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
-  }
-
   function cargarPanel(enSilencio) {
     if (!usuario) return;
     if (!enSilencio) cargando(true);
@@ -869,22 +862,102 @@
     return 'n:' + String(inc['Cliente'] || '').trim().toLowerCase();
   }
 
-  function filtrar(lista) {
-    var periodo = $('filtroPeriodo').value;
-    var comercial = $('filtroComercial').value;
-    var tipo = $('filtroTipo').value;
-    var estado = $('filtroEstado').value;
+  // Filtros por campo: id del desplegable, columna del Sheet y valor cuando está vacía.
+  var FILTROS = [
+    { id: 'filtroComercial', campo: 'Comercial', vacio: 'Sin asignar' },
+    { id: 'filtroTipo', campo: 'Tipo', vacio: 'Sin tipo' },
+    { id: 'filtroEstado', campo: 'Estado', vacio: 'Abierta' },
+    { id: 'filtroCategoria', campo: 'Categoría', vacio: 'No aplica' },
+    { id: 'filtroDetecta', campo: 'Detectada por', vacio: 'Sin indicar' },
+    { id: 'filtroAfecta', campo: 'Afecta al servicio', vacio: 'Sin indicar' }
+  ];
+  var FILTROS_EXTRA = ['filtroCategoria', 'filtroDetecta', 'filtroAfecta', 'filtroCliente'];
+  var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  function filtroPorId(id) {
+    for (var i = 0; i < FILTROS.length; i++) if (FILTROS[i].id === id) return FILTROS[i];
+    return null;
+  }
+
+  function valorCampo(inc, filtro) {
+    return String(inc[filtro.campo] || '').trim() || filtro.vacio;
+  }
+
+  function normalizar(t) {
+    t = String(t || '').toLowerCase().trim();
+    try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) { /* navegador antiguo */ }
+    return t;
+  }
+
+  function prepararPanel() {
+    rellenarSelect($('filtroComercial'), L.comerciales, { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroTipo'), L.tipos, { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroEstado'), L.estados, { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroCategoria'), L.categorias, { valor: '', texto: 'Todas' });
+    rellenarSelect($('filtroDetecta'), L.detectadaPor.concat(['Sin indicar']), { valor: '', texto: 'Todos' });
+    rellenarSelect($('filtroAfecta'), L.afectaServicio.concat(['Sin indicar']), { valor: '', texto: 'Todos' });
+
+    ['filtroPeriodo'].concat(FILTROS.map(function (f) { return f.id; })).forEach(function (id) {
+      $(id).addEventListener('change', pintarPanel);
+    });
+    var espera = null;
+    $('filtroCliente').addEventListener('input', function () {
+      clearTimeout(espera);
+      espera = setTimeout(pintarPanel, 250);
+    });
+    $('btnMasFiltros').addEventListener('click', function () { verFiltrosExtra(!$('filtros').classList.contains('ver-todos')); });
+    $('btnQuitarFiltros').addEventListener('click', function () {
+      FILTROS.forEach(function (f) { $(f.id).value = ''; });
+      $('filtroCliente').value = '';
+      pintarPanel();
+    });
+    $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
+    $('btnAnadir').addEventListener('click', function () {
+      mostrarVista('vistaRegistrar');
+      window.scrollTo(0, 0);
+    });
+  }
+
+  function verFiltrosExtra(ver) {
+    $('filtros').classList.toggle('ver-todos', ver);
+    $('btnMasFiltros').textContent = ver ? 'Menos filtros' : 'Más filtros';
+  }
+
+  /** Marca los filtros en uso y enseña «Quitar filtros» si hay alguno. */
+  function pintarEstadoFiltros() {
+    var activos = 0;
+    var extraActivo = false;
+    FILTROS.map(function (f) { return f.id; }).concat(['filtroCliente']).forEach(function (id) {
+      var activo = !!$(id).value.trim();
+      $(id).classList.toggle('filtro-activo', activo);
+      if (activo) {
+        activos++;
+        if (FILTROS_EXTRA.indexOf(id) >= 0) extraActivo = true;
+      }
+    });
+    $('btnQuitarFiltros').classList.toggle('oculto', !activos);
+    if (extraActivo) verFiltrosExtra(true);
+  }
+
+  /** Primer día del periodo elegido, o null para «Todo». */
+  function inicioPeriodo(periodo) {
     var ahora = new Date();
-    var desde = null;
-    if (periodo === 'anio') {
-      desde = new Date(ahora.getFullYear(), 0, 1);
-    } else if (periodo !== 'todo') {
-      desde = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - (+periodo - 1));
-    }
+    if (periodo === 'anio') return new Date(ahora.getFullYear(), 0, 1);
+    if (periodo === 'todo') return null;
+    return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - (+periodo - 1));
+  }
+
+  function filtrar(lista) {
+    var desde = inicioPeriodo($('filtroPeriodo').value);
+    var activos = FILTROS.filter(function (f) { return $(f.id).value; });
+    var cliente = normalizar($('filtroCliente').value);
     return lista.filter(function (inc) {
-      if (comercial && inc['Comercial'] !== comercial) return false;
-      if (tipo && inc['Tipo'] !== tipo) return false;
-      if (estado && (inc['Estado'] || 'Abierta') !== estado) return false;
+      for (var i = 0; i < activos.length; i++) {
+        if (valorCampo(inc, activos[i]) !== $(activos[i].id).value) return false;
+      }
+      if (cliente &&
+          normalizar(inc['Cliente']).indexOf(cliente) < 0 &&
+          normalizar(inc['Código cliente']).indexOf(cliente) < 0) return false;
       if (desde) {
         var f = fechaDe(inc);
         if (!f || f < desde) return false;
@@ -902,24 +975,41 @@
     return mapa;
   }
 
-  function pintarBarras(contenedor, mapa, orden) {
+  /** Cambia un filtro al tocar una barra. Si ya estaba puesto, lo quita. */
+  function alternarFiltro(idFiltro, valor) {
+    var sel = $(idFiltro);
+    sel.value = sel.value === valor ? '' : valor;
+    if (FILTROS_EXTRA.indexOf(idFiltro) >= 0 && sel.value) verFiltrosExtra(true);
+    pintarPanel();
+  }
+
+  /** Barras horizontales. Con idFiltro, cada barra filtra el panel al tocarla. */
+  function pintarBarras(contenedor, mapa, orden, idFiltro) {
     vaciar(contenedor);
     var claves = orden || Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a]; });
     var max = 0;
     claves.forEach(function (k) { max = Math.max(max, mapa[k] || 0); });
     if (!max) {
-      contenedor.appendChild(el('p', 'vacio', 'Sin datos en este periodo.'));
+      contenedor.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
       return;
     }
+    var seleccionado = idFiltro ? $(idFiltro).value : '';
     claves.forEach(function (k) {
       var n = mapa[k] || 0;
-      var fila = el('div', 'barra');
+      var fila = el(idFiltro ? 'button' : 'div', 'barra' + (idFiltro ? ' barra-boton' : '') + (seleccionado === k ? ' seleccionada' : ''));
+      if (idFiltro) {
+        fila.type = 'button';
+        fila.setAttribute('aria-pressed', seleccionado === k ? 'true' : 'false');
+        fila.title = seleccionado === k ? 'Quitar filtro' : 'Ver solo ' + k;
+        fila.addEventListener('click', function () { alternarFiltro(idFiltro, k); });
+      }
       var texto = el('div', 'barra-texto');
       texto.appendChild(el('span', null, k));
       texto.appendChild(el('span', null, String(n)));
       var fondo = el('div', 'barra-fondo');
       var relleno = el('div', 'barra-relleno');
-      relleno.style.width = (n / max * 100) + '%';
+      relleno.style.width = (n ? n / max * 100 : 0) + '%';
+      if (!n) relleno.style.minWidth = '0';
       fondo.appendChild(relleno);
       fila.appendChild(texto);
       fila.appendChild(fondo);
@@ -927,8 +1017,195 @@
     });
   }
 
+  /** Columnas por día, semana o mes según el periodo. */
+  function pintarEvolucion(lista) {
+    var cont = $('gEvolucion');
+    vaciar(cont);
+    var periodo = $('filtroPeriodo').value;
+    var unidad = periodo === '7' || periodo === '30' ? 'dia' : periodo === '90' ? 'semana' : 'mes';
+    $('evolucionUnidad').textContent = unidad === 'dia' ? '(por día)' : unidad === 'semana' ? '(por semana)' : '(por mes)';
+
+    function inicioTramo(f) {
+      if (unidad === 'dia') return new Date(f.getFullYear(), f.getMonth(), f.getDate());
+      if (unidad === 'semana') return new Date(f.getFullYear(), f.getMonth(), f.getDate() - (f.getDay() + 6) % 7);
+      return new Date(f.getFullYear(), f.getMonth(), 1);
+    }
+    function siguiente(f) {
+      if (unidad === 'dia') return new Date(f.getFullYear(), f.getMonth(), f.getDate() + 1);
+      if (unidad === 'semana') return new Date(f.getFullYear(), f.getMonth(), f.getDate() + 7);
+      return new Date(f.getFullYear(), f.getMonth() + 1, 1);
+    }
+    function etiqueta(f, larga) {
+      if (unidad === 'dia') return dos(f.getDate()) + '/' + dos(f.getMonth() + 1);
+      if (unidad === 'semana') return (larga ? 'Semana del ' : '') + dos(f.getDate()) + '/' + dos(f.getMonth() + 1);
+      return MESES[f.getMonth()] + ' ' + String(f.getFullYear()).slice(-2);
+    }
+
+    var fechas = lista.map(fechaDe).filter(Boolean);
+    var hoy = new Date();
+    var desde = inicioPeriodo(periodo);
+    if (!desde) {
+      if (!fechas.length) {
+        cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+        return;
+      }
+      desde = new Date(Math.min.apply(null, fechas));
+    }
+    var hasta = fechas.length ? new Date(Math.max(hoy.getTime(), Math.max.apply(null, fechas))) : hoy;
+
+    var tramos = [];
+    var indice = {};
+    for (var f = inicioTramo(desde); f <= hasta && tramos.length < 400; f = siguiente(f)) {
+      indice[f.getTime()] = tramos.length;
+      tramos.push({ inicio: f, n: 0 });
+    }
+    fechas.forEach(function (fecha) {
+      var i = indice[inicioTramo(fecha).getTime()];
+      if (i !== undefined) tramos[i].n++;
+    });
+    var max = 0;
+    tramos.forEach(function (t) { max = Math.max(max, t.n); });
+    if (!max) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+      return;
+    }
+
+    var caja = el('div', 'evolucion');
+    caja.appendChild(el('div', 'evolucion-max', 'Máximo: ' + max + (max === 1 ? ' incidencia' : ' incidencias')));
+    var columnas = el('div', 'columnas');
+    var tooltip = el('div', 'tooltip oculto');
+    var activa = null;
+
+    function mostrarTooltip(col, t) {
+      if (activa) activa.classList.remove('activa');
+      activa = col;
+      col.classList.add('activa');
+      tooltip.textContent = etiqueta(t.inicio, true) + ': ' + t.n + (t.n === 1 ? ' incidencia' : ' incidencias');
+      tooltip.classList.remove('oculto');
+      var x = col.offsetLeft + col.offsetWidth / 2;
+      var ancho = caja.offsetWidth;
+      var mitad = tooltip.offsetWidth / 2;
+      tooltip.style.left = Math.max(mitad, Math.min(ancho - mitad, x)) + 'px';
+    }
+    function ocultarTooltip() {
+      if (activa) activa.classList.remove('activa');
+      activa = null;
+      tooltip.classList.add('oculto');
+    }
+
+    tramos.forEach(function (t) {
+      var col = el('div', 'columna');
+      var barra = el('div', 'columna-barra');
+      barra.style.height = (t.n / max * 100) + '%';
+      col.appendChild(barra);
+      col.setAttribute('aria-label', etiqueta(t.inicio, true) + ': ' + t.n);
+      col.addEventListener('mouseenter', function () { mostrarTooltip(col, t); });
+      col.addEventListener('click', function () { mostrarTooltip(col, t); });
+      columnas.appendChild(col);
+    });
+    columnas.addEventListener('mouseleave', ocultarTooltip);
+
+    var eje = el('div', 'evolucion-eje');
+    eje.appendChild(el('span', null, etiqueta(tramos[0].inicio)));
+    if (tramos.length > 2) eje.appendChild(el('span', null, etiqueta(tramos[Math.floor((tramos.length - 1) / 2)].inicio)));
+    if (tramos.length > 1) eje.appendChild(el('span', null, etiqueta(tramos[tramos.length - 1].inicio)));
+
+    caja.appendChild(columnas);
+    caja.appendChild(eje);
+    caja.appendChild(tooltip);
+    cont.appendChild(caja);
+  }
+
+  /** Barra única con abiertas y resueltas. La leyenda filtra por estado. */
+  function pintarEstado(lista) {
+    var cont = $('gEstado');
+    vaciar(cont);
+    if (!lista.length) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+      return;
+    }
+    var resueltas = lista.filter(function (i) { return i['Estado'] === 'Resuelta'; }).length;
+    var abiertas = lista.length - resueltas;
+    var barra = el('div', 'estado-barra');
+    barra.setAttribute('role', 'img');
+    barra.setAttribute('aria-label', abiertas + ' abiertas y ' + resueltas + ' resueltas');
+    if (abiertas) {
+      var a = el('div', 'estado-abiertas');
+      a.style.flex = String(abiertas);
+      barra.appendChild(a);
+    }
+    if (resueltas) {
+      var r = el('div', 'estado-resueltas');
+      r.style.flex = String(resueltas);
+      barra.appendChild(r);
+    }
+    cont.appendChild(barra);
+
+    var leyenda = el('div', 'leyenda');
+    [['Abierta', 'Abiertas', abiertas, 'estado-abiertas'], ['Resuelta', 'Resueltas', resueltas, 'estado-resueltas']].forEach(function (d) {
+      var pct = Math.round(d[2] / lista.length * 100);
+      var b = el('button', 'enlace');
+      b.type = 'button';
+      b.style.textDecoration = 'none';
+      b.style.color = 'inherit';
+      var muestra = el('i', d[3]);
+      var s = el('span');
+      s.appendChild(muestra);
+      s.appendChild(document.createTextNode(d[1] + ': ' + d[2] + ' (' + pct + ' %)'));
+      if ($('filtroEstado').value === d[0]) s.style.fontWeight = 'bold';
+      b.appendChild(s);
+      b.title = 'Ver solo ' + d[1].toLowerCase();
+      b.addEventListener('click', function () { alternarFiltro('filtroEstado', d[0]); });
+      leyenda.appendChild(b);
+    });
+    cont.appendChild(leyenda);
+  }
+
+  function pintarRepetidos(lista) {
+    var cont = $('dRepetidos');
+    vaciar(cont);
+    var grupos = {};
+    lista.forEach(function (i) {
+      var k = claveCliente(i);
+      if (!grupos[k]) grupos[k] = { nombre: i['Cliente'] || 'Sin nombre', codigo: i['Código cliente'] || '', n: 0, abiertas: 0 };
+      grupos[k].n++;
+      if (i['Estado'] !== 'Resuelta') grupos[k].abiertas++;
+    });
+    var repetidos = Object.keys(grupos).map(function (k) { return grupos[k]; })
+      .filter(function (g) { return g.n > 1; })
+      .sort(function (a, b) { return b.n - a.n; });
+    if (!repetidos.length) {
+      cont.appendChild(el('p', 'vacio', 'Ningún cliente repite con estos filtros.'));
+      return;
+    }
+    var tabla = el('table', 'tabla-repetidos');
+    var cab = el('tr');
+    ['Cliente', 'Abiertas', 'Total'].forEach(function (t) { cab.appendChild(el('th', null, t)); });
+    tabla.appendChild(cab);
+    repetidos.forEach(function (g) {
+      var tr = el('tr');
+      var td = el('td');
+      var b = el('button', null, g.nombre + (g.codigo ? ' (' + g.codigo + ')' : ''));
+      b.type = 'button';
+      b.title = 'Ver solo este cliente';
+      b.addEventListener('click', function () {
+        $('filtroCliente').value = g.codigo || g.nombre;
+        verFiltrosExtra(true);
+        pintarPanel();
+        $('listaIncidencias').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      td.appendChild(b);
+      tr.appendChild(td);
+      tr.appendChild(el('td', null, String(g.abiertas)));
+      tr.appendChild(el('td', null, String(g.n)));
+      tabla.appendChild(tr);
+    });
+    cont.appendChild(tabla);
+  }
+
   function pintarPanel() {
     if (!incidenciasPanel) return;
+    pintarEstadoFiltros();
     var lista = filtrar(incidenciasPanel);
 
     // Indicadores
@@ -949,32 +1226,23 @@
       ? formatoNumero(dias.reduce(function (a, b) { return a + b; }, 0) / dias.length, 1)
       : '–';
 
-    // Desgloses
-    pintarBarras($('dTipo'), contar(lista, function (i) { return i['Tipo'] || 'Sin tipo'; }));
-    pintarBarras($('dComercial'), contar(lista, function (i) { return i['Comercial'] || 'Sin asignar'; }));
-    pintarBarras($('dProducto'), contar(lista, function (i) { return i['Categoría'] || 'No aplica'; }));
+    // Gráficos
+    pintarEvolucion(lista);
+    pintarEstado(lista);
+    function barrasDe(idCont, idFiltro, orden) {
+      var f = filtroPorId(idFiltro);
+      pintarBarras($(idCont), contar(lista, function (i) { return valorCampo(i, f); }), orden, idFiltro);
+    }
+    barrasDe('dTipo', 'filtroTipo');
+    barrasDe('dComercial', 'filtroComercial');
+    barrasDe('dProducto', 'filtroCategoria');
+    barrasDe('dDetecta', 'filtroDetecta');
+    barrasDe('dAfecta', 'filtroAfecta', L.afectaServicio.concat(['Sin indicar']));
     pintarBarras($('dDia'), contar(lista, function (i) {
       var f = fechaDe(i);
       return f ? DIAS_SEMANA[(f.getDay() + 6) % 7] : 'Sin fecha';
     }), DIAS_SEMANA);
-    pintarBarras($('dDetecta'), contar(lista, function (i) { return i['Detectada por'] || 'Sin indicar'; }));
-
-    // Clientes repetidos
-    var grupos = {};
-    lista.forEach(function (i) {
-      var k = claveCliente(i);
-      if (!grupos[k]) grupos[k] = { nombre: i['Cliente'] || 'Sin nombre', n: 0 };
-      grupos[k].n++;
-    });
-    var repetidos = {};
-    Object.keys(grupos).forEach(function (k) {
-      if (grupos[k].n > 1) repetidos[grupos[k].nombre + (k.indexOf('c:') === 0 ? ' (' + k.slice(2).toUpperCase() + ')' : '')] = grupos[k].n;
-    });
-    pintarBarras($('dRepetidos'), repetidos);
-    if (!Object.keys(repetidos).length) {
-      vaciar($('dRepetidos'));
-      $('dRepetidos').appendChild(el('p', 'vacio', 'Ningún cliente repite en este periodo.'));
-    }
+    pintarRepetidos(lista);
 
     pintarLista(lista);
   }
@@ -1145,7 +1413,10 @@
     for (var i = 0; i < pestanas.length; i++) {
       pestanas[i].classList.toggle('activa', pestanas[i].getAttribute('data-vista') === id);
     }
-    if (id === 'vistaPanel' && !incidenciasPanel) cargarPanel(false);
+    if (id === 'vistaPanel') {
+      if (!incidenciasPanel) cargarPanel(false);
+      else pintarPanel();
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1160,6 +1431,10 @@
     $('btnSalir').addEventListener('click', alSalir);
     $('formIncidencia').addEventListener('submit', alRegistrar);
     $('btnReintentarForm').addEventListener('click', alRegistrar);
+    $('btnVolver').addEventListener('click', function () {
+      mostrarVista('vistaPanel');
+      window.scrollTo(0, 0);
+    });
     $('btnLimpiar').addEventListener('click', function () {
       limpiarFormulario();
       ocultarMensaje('mensajeRegistro');

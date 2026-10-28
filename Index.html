@@ -35,8 +35,8 @@
         </div>
       </div>
       <nav class="pestanas" role="tablist">
-        <button type="button" class="pestana activa" data-vista="vistaRegistrar" role="tab">Registrar</button>
-        <button type="button" class="pestana" data-vista="vistaPanel" role="tab">Panel</button>
+        <button type="button" class="pestana activa" data-vista="vistaPanel" role="tab">Panel</button>
+        <button type="button" class="pestana" data-vista="vistaRegistrar" role="tab">Añadir</button>
         <button type="button" class="pestana" data-vista="vistaAyuda" role="tab">Ayuda</button>
       </nav>
 
@@ -54,10 +54,104 @@
     </header>
 
     <main>
+      <div id="mensajeRegistro" class="mensaje oculto" role="alert"></div>
 
-      <!-- Registrar -->
-      <section id="vistaRegistrar" class="vista">
-        <div id="mensajeRegistro" class="mensaje oculto" role="alert"></div>
+      <!-- Panel (pantalla de inicio) -->
+      <section id="vistaPanel" class="vista">
+        <div class="panel-cabecera">
+          <h1>Panel de incidencias</h1>
+          <button id="btnAnadir" type="button" class="btn btn-principal btn-anadir">+ Añadir incidencia</button>
+        </div>
+
+        <div id="filtros" class="filtros">
+          <div>
+            <label for="filtroPeriodo">Periodo</label>
+            <select id="filtroPeriodo">
+              <option value="7">Últimos 7 días</option>
+              <option value="30" selected>Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+              <option value="anio">Este año</option>
+              <option value="todo">Todo</option>
+            </select>
+          </div>
+          <div>
+            <label for="filtroComercial">Comercial</label>
+            <select id="filtroComercial"></select>
+          </div>
+          <div>
+            <label for="filtroTipo">Tipo</label>
+            <select id="filtroTipo"></select>
+          </div>
+          <div>
+            <label for="filtroEstado">Estado</label>
+            <select id="filtroEstado"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroCategoria">Categoría</label>
+            <select id="filtroCategoria"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroDetecta">Detectada por</label>
+            <select id="filtroDetecta"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroAfecta">Afecta al servicio</label>
+            <select id="filtroAfecta"></select>
+          </div>
+          <div class="filtro-extra">
+            <label for="filtroCliente">Cliente</label>
+            <input id="filtroCliente" type="search" placeholder="Nombre o código">
+          </div>
+        </div>
+        <div class="panel-barra">
+          <div class="panel-barra-izq">
+            <button id="btnMasFiltros" type="button" class="enlace">Más filtros</button>
+            <button id="btnQuitarFiltros" type="button" class="enlace oculto">Quitar filtros</button>
+          </div>
+          <div class="panel-barra-der">
+            <span id="panelActualizado" class="nota"></span>
+            <button id="btnActualizarPanel" type="button" class="btn btn-mini">Actualizar</button>
+          </div>
+        </div>
+
+        <div id="mensajePanel" class="mensaje oculto" role="alert"></div>
+
+        <div class="indicadores">
+          <div class="indicador"><span id="kTotal">–</span><small>Incidencias</small></div>
+          <div class="indicador"><span id="kAbiertas">–</span><small>Abiertas</small></div>
+          <div class="indicador"><span id="kClientes">–</span><small>Clientes afectados</small></div>
+          <div class="indicador"><span id="kDias">–</span><small>Días medios hasta resolver</small></div>
+        </div>
+
+        <div class="desgloses">
+          <div class="tarjeta tarjeta-ancha">
+            <h3>Evolución <span id="evolucionUnidad" class="nota"></span></h3>
+            <div id="gEvolucion"></div>
+          </div>
+          <div class="tarjeta tarjeta-ancha">
+            <h3>Abiertas y resueltas</h3>
+            <div id="gEstado"></div>
+          </div>
+          <div class="tarjeta"><h3>Por tipo</h3><div id="dTipo"></div></div>
+          <div class="tarjeta"><h3>Por comercial</h3><div id="dComercial"></div></div>
+          <div class="tarjeta"><h3>Por producto</h3><div id="dProducto"></div></div>
+          <div class="tarjeta"><h3>Quién la detecta</h3><div id="dDetecta"></div></div>
+          <div class="tarjeta"><h3>Afecta al servicio</h3><div id="dAfecta"></div></div>
+          <div class="tarjeta"><h3>Por día de la semana</h3><div id="dDia"></div></div>
+          <div class="tarjeta tarjeta-ancha"><h3>Clientes con más de una incidencia</h3><div id="dRepetidos"></div></div>
+        </div>
+        <p class="nota">Toca una barra para filtrar por ese valor. Vuelve a tocarla para quitar el filtro.</p>
+
+        <h2 class="titulo-lista">Incidencias <span id="cuentaLista" class="nota"></span></h2>
+        <div id="listaIncidencias" class="lista-incidencias"></div>
+      </section>
+
+      <!-- Nueva incidencia -->
+      <section id="vistaRegistrar" class="vista oculto">
+        <div class="form-cabecera">
+          <button id="btnVolver" type="button" class="enlace">← Volver al panel</button>
+          <h1>Nueva incidencia</h1>
+        </div>
 
         <form id="formIncidencia" novalidate>
           <div id="avisoCorreccion" class="mensaje mensaje-info oculto"></div>
@@ -160,64 +254,11 @@
         </form>
       </section>
 
-      <!-- Panel -->
-      <section id="vistaPanel" class="vista oculto">
-        <div class="filtros">
-          <div>
-            <label for="filtroPeriodo">Periodo</label>
-            <select id="filtroPeriodo">
-              <option value="7">Últimos 7 días</option>
-              <option value="30" selected>Últimos 30 días</option>
-              <option value="90">Últimos 90 días</option>
-              <option value="anio">Este año</option>
-              <option value="todo">Todo</option>
-            </select>
-          </div>
-          <div>
-            <label for="filtroComercial">Comercial</label>
-            <select id="filtroComercial"></select>
-          </div>
-          <div>
-            <label for="filtroTipo">Tipo</label>
-            <select id="filtroTipo"></select>
-          </div>
-          <div>
-            <label for="filtroEstado">Estado</label>
-            <select id="filtroEstado"></select>
-          </div>
-        </div>
-        <div class="panel-barra">
-          <span id="panelActualizado" class="nota"></span>
-          <button id="btnActualizarPanel" type="button" class="btn btn-mini">Actualizar</button>
-        </div>
-
-        <div id="mensajePanel" class="mensaje oculto" role="alert"></div>
-
-        <div class="indicadores">
-          <div class="indicador"><span id="kTotal">–</span><small>Incidencias</small></div>
-          <div class="indicador"><span id="kAbiertas">–</span><small>Abiertas</small></div>
-          <div class="indicador"><span id="kClientes">–</span><small>Clientes afectados</small></div>
-          <div class="indicador"><span id="kDias">–</span><small>Días medios hasta resolver</small></div>
-        </div>
-
-        <div class="desgloses">
-          <div class="tarjeta"><h3>Por tipo</h3><div id="dTipo"></div></div>
-          <div class="tarjeta"><h3>Por comercial</h3><div id="dComercial"></div></div>
-          <div class="tarjeta"><h3>Por producto</h3><div id="dProducto"></div></div>
-          <div class="tarjeta"><h3>Por día de la semana</h3><div id="dDia"></div></div>
-          <div class="tarjeta"><h3>Quién la detecta</h3><div id="dDetecta"></div></div>
-          <div class="tarjeta"><h3>Clientes con más de una incidencia</h3><div id="dRepetidos"></div></div>
-        </div>
-
-        <h2 class="titulo-lista">Incidencias <span id="cuentaLista" class="nota"></span></h2>
-        <div id="listaIncidencias" class="lista-incidencias"></div>
-      </section>
-
       <!-- Ayuda -->
       <section id="vistaAyuda" class="vista oculto">
         <div class="tarjeta texto-ayuda">
           <h3>Cómo se registra</h3>
-          <p>Rellena los campos con <b>*</b> y pulsa «Registrar». Puedes añadir hasta 3 fotos: con la cámara o desde la galería.</p>
+          <p>En el panel, pulsa «+ Añadir incidencia». Rellena los campos con <b>*</b> y pulsa «Registrar». Puedes añadir hasta 3 fotos: con la cámara o desde la galería.</p>
 
           <h3>Sin cobertura</h3>
           <p>Si no hay conexión, la incidencia se guarda en el teléfono y se envía sola cuando vuelva la cobertura. Arriba verás cuántas quedan pendientes. Con «Reintentar ahora» lo intentas en el momento.</p>
@@ -230,6 +271,9 @@
 
           <h3>Pendientes con error</h3>
           <p>Si una pendiente no se puede enviar por clave incorrecta o por datos que faltan, no se reintenta sola. Ábrela con «Corregir», revisa los datos y vuelve a registrarla, o descártala.</p>
+
+          <h3>Panel</h3>
+          <p>Es la pantalla de inicio. Elige el periodo y los filtros; los gráficos y la lista se actualizan solos. Toca una barra de cualquier gráfico para quedarte solo con ese valor.</p>
 
           <h3>Cerrar una incidencia</h3>
           <p>En «Panel», abre la incidencia, elige la solución, escribe una nota si hace falta y pulsa «Marcar como resuelta». Si hay que volver a ella, usa «Reabrir».</p>

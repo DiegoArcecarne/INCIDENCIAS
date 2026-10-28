@@ -136,3 +136,7 @@ Igual que el prototipo: filtros por periodo, comercial, tipo y estado; total, ab
 * Si la clave guardada deja de valer, la página vuelve a pedirla. Al entrar con la clave buena, las pendientes que fallaron por clave vuelven solas a la cola.
 * Las fotos no se comparten automáticamente: quien tenga que abrir los enlaces necesita acceso a la carpeta de Drive (se comparte una vez la carpeta).
 * Además de los momentos de la especificación, la cola se intenta enviar al volver a la página (cambio de pestaña o de aplicación en el móvil).
+* La pantalla de inicio es el panel. Tiene un botón «+ Añadir incidencia» que abre el formulario y una pestaña «Añadir» con el mismo destino. Después de registrar (o de guardar en el teléfono) se vuelve al panel con el mensaje arriba.
+* El panel tiene además: gráfico de evolución (por día en 7 y 30 días, por semana en 90 días, por mes en «Este año» y «Todo»), barra de abiertas y resueltas, desglose por «Afecta al servicio», y filtros extra por categoría, quién la detecta, afecta al servicio y cliente (nombre o código).
+* Tocar una barra del panel filtra por ese valor; tocarla otra vez quita el filtro. Tocar un cliente repetido filtra por ese cliente.
+* Gráficos hechos con HTML y CSS propios, sin librerías, en un solo color (dorado). Abiertas en dorado y resueltas en verde, siempre con texto y número al lado.
