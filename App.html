@@ -27,7 +27,6 @@
   var correccion = null;       // { id, fechaCreacion, creada } al corregir una pendiente o reintentar
   var registrando = false;
   var incidenciasPanel = null;
-  var abiertaEnPanel = null;
   var colaEnMarcha = false;
   var colaPromesa = Promise.resolve();
   var paseEsperando = null;
@@ -854,6 +853,10 @@
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Utilidades del panel
+  // -------------------------------------------------------------------------
+
   function fechaDe(inc) {
     return leerFecha(inc['Apertura']) || leerFecha(inc['Fecha registro']);
   }
@@ -864,11 +867,19 @@
       Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
   }
 
+  /** Días que lleva abierta (o que estuvo abierta si ya se resolvió). */
+  function diasAbierta(inc) {
+    var ini = fechaDe(inc);
+    if (!ini) return null;
+    var fin = inc['Estado'] === 'Resuelta' ? leerFecha(inc['Resolución']) : new Date();
+    return fin ? diasEntre(ini, fin) : null;
+  }
+
   /** 'yyyy-MM-dd[ HH:mm]' -> 'dd/MM/yyyy[ HH:mm]' */
-  function fechaVisible(t) {
+  function fechaVisible(t, sinHora) {
     var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(String(t || ''));
     if (!m) return t || '';
-    return m[3] + '/' + m[2] + '/' + m[1] + (m[4] && m[4] !== '00:00' ? ' ' + m[4] : '');
+    return m[3] + '/' + m[2] + '/' + m[1] + (!sinHora && m[4] && m[4] !== '00:00' ? ' ' + m[4] : '');
   }
 
   function claveCliente(inc) {
@@ -877,25 +888,39 @@
     return 'n:' + normalizar(inc['Cliente']);
   }
 
-  // Filtros por campo: id del desplegable, columna del Sheet, valores fijos y texto cuando está vacía.
+  function normalizar(t) {
+    t = String(t || '').toLowerCase().trim();
+    try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) { /* navegador antiguo */ }
+    return t;
+  }
+
+  function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
+
+  // Preferencias de vista (tipo de gráfico, orden...) guardadas en este navegador.
+  var CLAVE_PREFS = 'arcecarne_incidencias_prefs';
+  var prefs = (function () {
+    try { return JSON.parse(window.localStorage.getItem(CLAVE_PREFS)) || {}; } catch (e) { return {}; }
+  })();
+  function guardarPrefs() {
+    try { window.localStorage.setItem(CLAVE_PREFS, JSON.stringify(prefs)); } catch (e) { /* nada */ }
+  }
+
+  // -------------------------------------------------------------------------
+  // Filtros
+  // -------------------------------------------------------------------------
+
   var FILTROS = [
-    { id: 'filtroEstado', campo: 'Estado', fijos: L.estados, vacio: 'Abierta', todos: 'Todos' },
-    { id: 'filtroGravedad', campo: 'Gravedad', fijos: L.gravedades, vacio: 'Sin indicar', todos: 'Todas' },
-    { id: 'filtroTipo', campo: 'Tipo incidencia', fijos: L.tipos, vacio: 'Sin indicar', todos: 'Todos' },
-    { id: 'filtroDepartamento', campo: 'Departamento', fijos: L.departamentos, vacio: 'Sin indicar', todos: 'Todos' },
-    { id: 'filtroAsignado', campo: 'Asignado a', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
-    { id: 'filtroFallado', campo: 'Quién ha fallado', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
-    { id: 'filtroInformado', campo: 'Informado por', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
-    { id: 'filtroDestino', campo: 'Destino', fijos: L.destinos, vacio: 'No aplica', todos: 'Todos' },
-    { id: 'filtroOrigen', campo: 'Origen', fijos: [L.origenApp, L.origenGR01], vacio: L.origenApp, todos: 'Todos' }
+    { id: 'filtroEstado', campo: 'Estado', nombre: 'Estado', fijos: L.estados, vacio: 'Abierta', todos: 'Todos' },
+    { id: 'filtroGravedad', campo: 'Gravedad', nombre: 'Gravedad', fijos: L.gravedades, vacio: 'Sin indicar', todos: 'Todas' },
+    { id: 'filtroTipo', campo: 'Tipo incidencia', nombre: 'Tipo', fijos: L.tipos, vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroDepartamento', campo: 'Departamento', nombre: 'Departamento', fijos: L.departamentos, vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroAsignado', campo: 'Asignado a', nombre: 'Asignado a', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroFallado', campo: 'Quién ha fallado', nombre: 'Quién ha fallado', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroInformado', campo: 'Informado por', nombre: 'Informado por', fijos: [], vacio: 'Sin indicar', todos: 'Todos' },
+    { id: 'filtroDestino', campo: 'Destino', nombre: 'Destino', fijos: L.destinos, vacio: 'No aplica', todos: 'Todos' },
+    { id: 'filtroOrigen', campo: 'Origen', nombre: 'Origen', fijos: [L.origenApp, L.origenGR01], vacio: L.origenApp, todos: 'Todos' }
   ];
-  var FILTROS_EXTRA = ['filtroDepartamento', 'filtroAsignado', 'filtroFallado', 'filtroInformado', 'filtroDestino', 'filtroOrigen', 'filtroTexto'];
   var CAMPOS_BUSQUEDA = ['Cliente', 'Código cliente', 'Artículo', 'Lote', 'Descripción', 'Comentarios', 'Nº GR-01', 'ID'];
-  var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-  var POR_PAGINA = 50;
-  var LIMITE_BARRAS = 10;
-  var barrasAbiertas = {};
-  var mostrandoLista = POR_PAGINA;
 
   function filtroPorId(id) {
     for (var i = 0; i < FILTROS.length; i++) if (FILTROS[i].id === id) return FILTROS[i];
@@ -906,13 +931,7 @@
     return String(inc[filtro.campo] || '').replace(/\s+/g, ' ').trim() || filtro.vacio;
   }
 
-  function normalizar(t) {
-    t = String(t || '').toLowerCase().trim();
-    try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) { /* navegador antiguo */ }
-    return t;
-  }
-
-  /** Opciones de cada filtro: las fijas y además las que aparezcan en los datos. */
+  /** Opciones de cada filtro: las fijas y además las que aparezcan en los datos, con su número. */
   function rellenarFiltros() {
     FILTROS.forEach(function (f) {
       var sel = $(f.id);
@@ -928,71 +947,41 @@
         .sort(function (a, b) { return cuenta[b] - cuenta[a] || a.localeCompare(b, 'es'); })
         .forEach(function (v) { opciones.push(v); });
       if (opciones.indexOf(f.vacio) < 0 && cuenta[f.vacio]) opciones.push(f.vacio);
-      rellenarSelect(sel, opciones, { valor: '', texto: f.todos });
+      vaciar(sel);
+      var todos = el('option', null, f.todos);
+      todos.value = '';
+      sel.appendChild(todos);
+      opciones.forEach(function (v) {
+        var o = el('option', null, v + (cuenta[v] ? ' (' + cuenta[v] + ')' : ''));
+        o.value = v;
+        sel.appendChild(o);
+      });
       sel.value = opciones.indexOf(elegido) >= 0 ? elegido : '';
     });
   }
 
-  function prepararPanel() {
-    rellenarFiltros();
-    ['filtroPeriodo'].concat(FILTROS.map(function (f) { return f.id; })).forEach(function (id) {
-      $(id).addEventListener('change', function () { mostrandoLista = POR_PAGINA; pintarPanel(); });
-    });
-    var espera = null;
-    $('filtroTexto').addEventListener('input', function () {
-      clearTimeout(espera);
-      espera = setTimeout(function () { mostrandoLista = POR_PAGINA; pintarPanel(); }, 250);
-    });
-    $('btnMasFiltros').addEventListener('click', function () { verFiltrosExtra(!$('filtros').classList.contains('ver-todos')); });
-    $('btnQuitarFiltros').addEventListener('click', function () {
-      FILTROS.forEach(function (f) { $(f.id).value = ''; });
-      $('filtroTexto').value = '';
-      mostrandoLista = POR_PAGINA;
-      pintarPanel();
-    });
-    $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
-    $('btnAnadir').addEventListener('click', function () {
-      mostrarVista('vistaRegistrar');
-      window.scrollTo(0, 0);
-    });
-    $('btnVerMas').addEventListener('click', function () {
-      mostrandoLista += POR_PAGINA;
-      pintarPanel();
-    });
+  /** { desde, hasta } del periodo elegido (hasta no incluido). null = sin límite. */
+  function rangoPeriodo() {
+    var p = $('filtroPeriodo').value;
+    var hoy = new Date();
+    var manana = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1);
+    if (p === 'todo') return { desde: null, hasta: null };
+    if (p === 'anio') return { desde: new Date(hoy.getFullYear(), 0, 1), hasta: null };
+    if (p === 'mes') return { desde: new Date(hoy.getFullYear(), hoy.getMonth(), 1), hasta: null };
+    if (p === 'mesAnterior') {
+      return { desde: new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1), hasta: new Date(hoy.getFullYear(), hoy.getMonth(), 1) };
+    }
+    if (p === 'personalizado') {
+      var d = leerFecha($('filtroDesde').value);
+      var h = leerFecha($('filtroHasta').value);
+      return { desde: d, hasta: h ? new Date(h.getFullYear(), h.getMonth(), h.getDate() + 1) : null };
+    }
+    return { desde: new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - (+p - 1)), hasta: manana };
   }
 
-  function verFiltrosExtra(ver) {
-    $('filtros').classList.toggle('ver-todos', ver);
-    $('btnMasFiltros').textContent = ver ? 'Menos filtros' : 'Más filtros';
-  }
-
-  /** Marca los filtros en uso y enseña «Quitar filtros» si hay alguno. */
-  function pintarEstadoFiltros() {
-    var activos = 0;
-    var extraActivo = false;
-    FILTROS.map(function (f) { return f.id; }).concat(['filtroTexto']).forEach(function (id) {
-      var activo = !!$(id).value.trim();
-      $(id).classList.toggle('filtro-activo', activo);
-      if (activo) {
-        activos++;
-        if (FILTROS_EXTRA.indexOf(id) >= 0) extraActivo = true;
-      }
-    });
-    $('btnQuitarFiltros').classList.toggle('oculto', !activos);
-    if (extraActivo) verFiltrosExtra(true);
-  }
-
-  /** Primer día del periodo elegido, o null para «Todo». */
-  function inicioPeriodo(periodo) {
-    var ahora = new Date();
-    if (periodo === 'anio') return new Date(ahora.getFullYear(), 0, 1);
-    if (periodo === 'todo') return null;
-    return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - (+periodo - 1));
-  }
-
-  function filtrar(lista) {
-    var desde = inicioPeriodo($('filtroPeriodo').value);
-    var activos = FILTROS.filter(function (f) { return $(f.id).value; });
+  function filtrar(lista, sinFiltro) {
+    var rango = rangoPeriodo();
+    var activos = FILTROS.filter(function (f) { return f.id !== sinFiltro && $(f.id).value; });
     var texto = normalizar($('filtroTexto').value);
     return lista.filter(function (inc) {
       for (var i = 0; i < activos.length; i++) {
@@ -1002,90 +991,355 @@
         var encontrado = CAMPOS_BUSQUEDA.some(function (c) { return normalizar(inc[c]).indexOf(texto) >= 0; });
         if (!encontrado) return false;
       }
-      if (desde) {
+      if (rango.desde || rango.hasta) {
         var f = fechaDe(inc);
-        if (!f || f < desde) return false;
+        if (!f) return false;
+        if (rango.desde && f < rango.desde) return false;
+        if (rango.hasta && f >= rango.hasta) return false;
       }
       return true;
     });
   }
 
-  function contar(lista, fn) {
-    var mapa = {};
-    lista.forEach(function (inc) {
-      var k = fn(inc);
-      mapa[k] = (mapa[k] || 0) + 1;
+  /** Etiquetas de los filtros activos; cada una se quita al tocarla. */
+  function pintarChips() {
+    var cont = $('chipsFiltros');
+    vaciar(cont);
+    var n = 0;
+    function chip(nombre, valor, quitar) {
+      var b = el('button', 'chip-filtro');
+      b.type = 'button';
+      b.title = 'Quitar este filtro';
+      b.appendChild(el('b', null, nombre + ':'));
+      b.appendChild(document.createTextNode(' ' + valor + ' '));
+      var x = el('span', null, '×');
+      x.setAttribute('aria-hidden', 'true');
+      b.appendChild(x);
+      b.addEventListener('click', function () { quitar(); alCambiarFiltros(); });
+      cont.appendChild(b);
+      n++;
+    }
+    FILTROS.forEach(function (f) {
+      var v = $(f.id).value;
+      if (v) chip(f.nombre, v, function () { $(f.id).value = ''; });
     });
-    return mapa;
+    var t = $('filtroTexto').value.trim();
+    if (t) chip('Buscar', '«' + t + '»', function () { $('filtroTexto').value = ''; });
+    if (n > 1) {
+      var todos = el('button', 'enlace', 'Quitar todos');
+      todos.type = 'button';
+      todos.addEventListener('click', function () {
+        FILTROS.forEach(function (f) { $(f.id).value = ''; });
+        $('filtroTexto').value = '';
+        alCambiarFiltros();
+      });
+      cont.appendChild(todos);
+    }
+    cont.classList.toggle('oculto', !n);
+    $('cuentaFiltros').textContent = String(n);
+    $('cuentaFiltros').classList.toggle('oculto', !n);
+    FILTROS.forEach(function (f) { $(f.id).classList.toggle('filtro-activo', !!$(f.id).value); });
+    $('filtroTexto').classList.toggle('filtro-activo', !!t);
   }
 
-  /** Cambia un filtro al tocar una barra. Si ya estaba puesto, lo quita. */
-  function alternarFiltro(idFiltro, valor) {
-    var sel = $(idFiltro);
-    sel.value = sel.value === valor ? '' : valor;
-    if (FILTROS_EXTRA.indexOf(idFiltro) >= 0 && sel.value) verFiltrosExtra(true);
-    mostrandoLista = POR_PAGINA;
+  function alCambiarFiltros() {
+    paginaLista = 1;
     pintarPanel();
   }
 
+  /** Cambia un filtro al tocar un gráfico. Si ya estaba puesto, lo quita. */
+  function alternarFiltro(idFiltro, valor) {
+    var sel = $(idFiltro);
+    sel.value = sel.value === valor ? '' : valor;
+    alCambiarFiltros();
+  }
+
+  // -------------------------------------------------------------------------
+  // Dimensiones para los gráficos
+  // -------------------------------------------------------------------------
+
+  var DIMENSIONES = [
+    { id: 'gravedad', nombre: 'Gravedad', filtro: 'filtroGravedad', tipo: 'circular', orden: 'gravedad' },
+    { id: 'tipo', nombre: 'Tipo de incidencia', filtro: 'filtroTipo', tipo: 'barras' },
+    { id: 'departamento', nombre: 'Departamento', filtro: 'filtroDepartamento', tipo: 'columnas' },
+    { id: 'fallado', nombre: 'Quién ha fallado', filtro: 'filtroFallado', tipo: 'barras' },
+    { id: 'asignado', nombre: 'Asignado a', filtro: 'filtroAsignado', tipo: 'barras' },
+    { id: 'informado', nombre: 'Informado por', filtro: 'filtroInformado', tipo: 'barras' },
+    { id: 'destino', nombre: 'Destino', filtro: 'filtroDestino', tipo: 'circular' },
+    { id: 'dia', nombre: 'Día de la semana', tipo: 'columnas', orden: 'dia' },
+    { id: 'estado', nombre: 'Estado', filtro: 'filtroEstado', tipo: 'circular', soloMedida: true },
+    { id: 'origen', nombre: 'Origen', filtro: 'filtroOrigen', tipo: 'circular', soloMedida: true },
+    { id: 'mes', nombre: 'Mes', tipo: 'columnas', orden: 'mes', soloMedida: true },
+    { id: 'cliente', nombre: 'Cliente', tipo: 'barras', soloMedida: true },
+    { id: 'articulo', nombre: 'Artículo', tipo: 'barras', soloMedida: true }
+  ];
+  var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  var TIPOS_GRAFICO = [['barras', 'Barras'], ['columnas', 'Columnas'], ['circular', 'Circular'], ['tabla', 'Tabla']];
+  var COLORES = ['#CE9816', '#2a78d6', '#e34948', '#6250d6', '#1baf7a'];
+  var COLOR_OTROS = '#9a9890';
+  var LIMITE_BARRAS = 10;
+  var barrasAbiertas = {};
+
+  function dimensionPorId(id) {
+    for (var i = 0; i < DIMENSIONES.length; i++) if (DIMENSIONES[i].id === id) return DIMENSIONES[i];
+    return DIMENSIONES[0];
+  }
+
+  /** Cuenta las incidencias por dimensión. Devuelve [{ k, n, filtro }] ya ordenado. */
+  function agrupar(lista, dim) {
+    var mapa = {};
+    var claveDe;
+    if (dim.filtro) {
+      var f = filtroPorId(dim.filtro);
+      claveDe = function (i) { return valorCampo(i, f); };
+    } else if (dim.id === 'dia') {
+      claveDe = function (i) { var f = fechaDe(i); return f ? DIAS_SEMANA[(f.getDay() + 6) % 7] : 'Sin fecha'; };
+    } else if (dim.id === 'mes') {
+      claveDe = function (i) { var f = fechaDe(i); return f ? f.getFullYear() + '-' + dos(f.getMonth() + 1) : 'Sin fecha'; };
+    } else if (dim.id === 'cliente') {
+      claveDe = function (i) { return String(i['Cliente'] || '').trim() || 'Sin cliente'; };
+    } else {
+      claveDe = function (i) { return String(i['Artículo'] || '').trim() || 'Sin artículo'; };
+    }
+    lista.forEach(function (i) {
+      var k = claveDe(i);
+      mapa[k] = (mapa[k] || 0) + 1;
+    });
+    var claves;
+    if (dim.orden === 'dia') {
+      claves = DIAS_SEMANA.slice();
+    } else if (dim.orden === 'gravedad') {
+      claves = L.gravedades.filter(function (g) { return mapa[g]; });
+      Object.keys(mapa).forEach(function (k) { if (claves.indexOf(k) < 0) claves.push(k); });
+    } else if (dim.orden === 'mes') {
+      claves = Object.keys(mapa).sort();
+    } else {
+      claves = Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a] || a.localeCompare(b, 'es'); });
+    }
+    return claves.map(function (k) {
+      var nombre = k;
+      if (dim.orden === 'mes' && /^\d{4}-\d{2}$/.test(k)) nombre = MESES[+k.slice(5) - 1] + ' ' + k.slice(2, 4);
+      return { k: k, nombre: nombre, n: mapa[k] || 0, filtro: dim.filtro || null };
+    });
+  }
+
+  /** Recorta a los primeros «limite» y junta el resto en «Otros». */
+  function recortar(datos, limite) {
+    if (!limite || datos.length <= limite) return datos;
+    var resto = datos.slice(limite).reduce(function (a, d) { return a + d.n; }, 0);
+    return datos.slice(0, limite).concat([{ k: '__otros', nombre: 'Otros (' + (datos.length - limite) + ')', n: resto, filtro: null }]);
+  }
+
+  // -------------------------------------------------------------------------
+  // Tipos de gráfico
+  // -------------------------------------------------------------------------
+
   /**
-   * Barras horizontales. Con idFiltro, cada barra filtra el panel al tocarla.
-   * Si hay más de LIMITE_BARRAS valores, enseña los primeros y un botón para ver todos.
+   * Dibuja datos [{ k, nombre, n, filtro }] en cont con el tipo elegido.
+   * opciones: { limite, idCaja (para «Ver todos»), redibujar }
    */
-  function pintarBarras(contenedor, mapa, orden, idFiltro) {
-    vaciar(contenedor);
-    var claves = orden || Object.keys(mapa).sort(function (a, b) { return mapa[b] - mapa[a] || a.localeCompare(b, 'es'); });
-    var max = 0;
-    claves.forEach(function (k) { max = Math.max(max, mapa[k] || 0); });
-    if (!max) {
-      contenedor.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+  function pintarGrafico(cont, datos, tipo, opciones) {
+    opciones = opciones || {};
+    vaciar(cont);
+    var total = datos.reduce(function (a, d) { return a + d.n; }, 0);
+    if (!total) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
       return;
     }
-    var seleccionado = idFiltro ? $(idFiltro).value : '';
-    var abierto = !!barrasAbiertas[contenedor.id];
-    var visibles = !orden && !abierto && claves.length > LIMITE_BARRAS ? claves.slice(0, LIMITE_BARRAS) : claves;
-    if (seleccionado && visibles.indexOf(seleccionado) < 0 && claves.indexOf(seleccionado) >= 0) visibles.push(seleccionado);
+    var abierto = opciones.idCaja && barrasAbiertas[opciones.idCaja];
+    var limite = opciones.limite;
+    if (tipo === 'circular') limite = 5;
+    else if (abierto) limite = 0;
+    var conDatos = opciones.conCeros ? datos : datos.filter(function (d) { return d.n > 0; });
+    // En el circular, lo que no cabe se junta en «Otros». En el resto se enseñan los primeros.
+    var visibles = tipo === 'circular' ? recortar(conDatos, limite) : (limite ? conDatos.slice(0, limite) : conDatos);
 
-    visibles.forEach(function (k) {
-      var n = mapa[k] || 0;
-      var fila = el(idFiltro ? 'button' : 'div', 'barra' + (idFiltro ? ' barra-boton' : '') + (seleccionado === k ? ' seleccionada' : ''));
-      if (idFiltro) {
-        fila.type = 'button';
-        fila.setAttribute('aria-pressed', seleccionado === k ? 'true' : 'false');
-        fila.title = seleccionado === k ? 'Quitar filtro' : 'Ver solo ' + k;
-        fila.addEventListener('click', function () { alternarFiltro(idFiltro, k); });
-      }
-      var texto = el('div', 'barra-texto');
-      texto.appendChild(el('span', null, k));
-      texto.appendChild(el('span', null, String(n)));
-      var fondo = el('div', 'barra-fondo');
-      var relleno = el('div', 'barra-relleno');
-      relleno.style.width = (n ? n / max * 100 : 0) + '%';
-      if (!n) relleno.style.minWidth = '0';
-      fondo.appendChild(relleno);
-      fila.appendChild(texto);
-      fila.appendChild(fondo);
-      contenedor.appendChild(fila);
-    });
+    if (tipo === 'columnas') pintarColumnasCat(cont, visibles);
+    else if (tipo === 'circular') pintarCircular(cont, visibles, total);
+    else if (tipo === 'tabla') pintarTablaDatos(cont, visibles, total);
+    else pintarBarrasCat(cont, visibles);
 
-    if (!orden && claves.length > LIMITE_BARRAS) {
-      var mas = el('button', 'enlace', abierto ? 'Ver menos' : 'Ver todos (' + claves.length + ')');
+    var ocultos = tipo === 'circular' ? 0 : conDatos.length - visibles.length;
+    if (ocultos > 0) {
+      var resto = conDatos.slice(visibles.length).reduce(function (a, d) { return a + d.n; }, 0);
+      cont.appendChild(el('p', 'nota', 'No se muestran ' + plural(ocultos, 'valor más', 'valores más') +
+        ' (' + plural(resto, 'incidencia', 'incidencias') + ').'));
+    }
+    var hayMas = tipo !== 'circular' && opciones.limite && conDatos.length > opciones.limite;
+    if (hayMas && opciones.idCaja) {
+      var mas = el('button', 'enlace', abierto ? 'Ver menos' : 'Ver todos (' + conDatos.length + ')');
       mas.type = 'button';
       mas.addEventListener('click', function () {
-        barrasAbiertas[contenedor.id] = !abierto;
-        pintarBarras(contenedor, mapa, orden, idFiltro);
+        barrasAbiertas[opciones.idCaja] = !abierto;
+        pintarGrafico(cont, datos, tipo, opciones);
       });
-      contenedor.appendChild(mas);
+      cont.appendChild(mas);
     }
   }
 
-  /** Columnas por día, semana o mes según el periodo. */
+  function seleccionado(d) {
+    return d.filtro && $(d.filtro).value === d.k;
+  }
+
+  function alPulsarDato(d) {
+    if (d.filtro && d.k !== '__otros') alternarFiltro(d.filtro, d.k);
+  }
+
+  function pintarBarrasCat(cont, datos) {
+    var max = Math.max.apply(null, datos.map(function (d) { return d.n; }).concat([1]));
+    datos.forEach(function (d) {
+      var clic = d.filtro && d.k !== '__otros';
+      var fila = el(clic ? 'button' : 'div', 'barra' + (clic ? ' barra-boton' : '') + (seleccionado(d) ? ' seleccionada' : ''));
+      if (clic) {
+        fila.type = 'button';
+        fila.title = seleccionado(d) ? 'Quitar filtro' : 'Ver solo ' + d.nombre;
+        fila.addEventListener('click', function () { alPulsarDato(d); });
+      }
+      var texto = el('div', 'barra-texto');
+      texto.appendChild(el('span', null, d.nombre));
+      texto.appendChild(el('span', null, String(d.n)));
+      var fondo = el('div', 'barra-fondo');
+      var relleno = el('div', 'barra-relleno');
+      relleno.style.width = (d.n / max * 100) + '%';
+      if (d.k === '__otros') relleno.style.background = COLOR_OTROS;
+      if (!d.n) relleno.style.minWidth = '0';
+      fondo.appendChild(relleno);
+      fila.appendChild(texto);
+      fila.appendChild(fondo);
+      cont.appendChild(fila);
+    });
+  }
+
+  function pintarColumnasCat(cont, datos) {
+    var max = Math.max.apply(null, datos.map(function (d) { return d.n; }).concat([1]));
+    var cols = el('div', 'cat-columnas');
+    var etiquetas = el('div', 'cat-etiquetas');
+    datos.forEach(function (d) {
+      var b = el('button', 'cat-columna' + (seleccionado(d) ? ' seleccionada' : ''));
+      b.type = 'button';
+      b.title = d.nombre + ': ' + d.n;
+      b.appendChild(el('span', 'valor', String(d.n)));
+      var r = el('span', 'relleno');
+      r.style.height = (d.n / max * 85) + '%';
+      if (d.k === '__otros') r.style.background = COLOR_OTROS;
+      b.appendChild(r);
+      if (d.filtro && d.k !== '__otros') b.addEventListener('click', function () { alPulsarDato(d); });
+      else b.style.cursor = 'default';
+      cols.appendChild(b);
+      var et = el('span', null, d.nombre);
+      et.title = d.nombre;
+      etiquetas.appendChild(et);
+    });
+    cont.appendChild(cols);
+    cont.appendChild(etiquetas);
+  }
+
+  function pintarCircular(cont, datos, total) {
+    var caja = el('div', 'circular');
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', datos.map(function (d) { return d.nombre + ' ' + d.n; }).join(', '));
+    var radio = 45, interior = 27, angulo = -Math.PI / 2;
+    function punto(r, a) { return (50 + r * Math.cos(a)).toFixed(3) + ' ' + (50 + r * Math.sin(a)).toFixed(3); }
+    datos.forEach(function (d, i) {
+      if (!d.n) return;
+      var color = d.k === '__otros' ? COLOR_OTROS : COLORES[i % COLORES.length];
+      var paso = d.n / total * Math.PI * 2;
+      var path = document.createElementNS(ns, 'path');
+      if (paso >= Math.PI * 2 - 0.0001) {
+        path.setAttribute('d', 'M ' + punto(radio, 0) + ' A ' + radio + ' ' + radio + ' 0 1 1 ' + punto(radio, Math.PI) +
+          ' A ' + radio + ' ' + radio + ' 0 1 1 ' + punto(radio, 0) + ' Z M ' + punto(interior, 0) +
+          ' A ' + interior + ' ' + interior + ' 0 1 0 ' + punto(interior, Math.PI) + ' A ' + interior + ' ' + interior + ' 0 1 0 ' + punto(interior, 0) + ' Z');
+        path.setAttribute('fill-rule', 'evenodd');
+      } else {
+        var fin = angulo + paso;
+        var grande = paso > Math.PI ? 1 : 0;
+        path.setAttribute('d', 'M ' + punto(radio, angulo) + ' A ' + radio + ' ' + radio + ' 0 ' + grande + ' 1 ' + punto(radio, fin) +
+          ' L ' + punto(interior, fin) + ' A ' + interior + ' ' + interior + ' 0 ' + grande + ' 0 ' + punto(interior, angulo) + ' Z');
+      }
+      path.setAttribute('fill', color);
+      path.setAttribute('stroke', '#FFFFFF');
+      path.setAttribute('stroke-width', '1');
+      var titulo = document.createElementNS(ns, 'title');
+      titulo.textContent = d.nombre + ': ' + d.n + ' (' + Math.round(d.n / total * 100) + ' %)';
+      path.appendChild(titulo);
+      if (d.filtro && d.k !== '__otros') path.addEventListener('click', function () { alPulsarDato(d); });
+      svg.appendChild(path);
+      angulo += paso;
+    });
+    var centro = document.createElementNS(ns, 'text');
+    centro.setAttribute('x', '50');
+    centro.setAttribute('y', '54');
+    centro.setAttribute('text-anchor', 'middle');
+    centro.setAttribute('font-size', '13');
+    centro.setAttribute('font-weight', 'bold');
+    centro.setAttribute('fill', '#111111');
+    centro.textContent = String(total);
+    svg.appendChild(centro);
+    caja.appendChild(svg);
+
+    var ley = el('ul', 'leyenda-circular');
+    datos.forEach(function (d, i) {
+      if (!d.n) return;
+      var li = el('li');
+      var b = el('button', seleccionado(d) ? 'seleccionada' : '');
+      b.type = 'button';
+      var muestra = el('i');
+      muestra.style.background = d.k === '__otros' ? COLOR_OTROS : COLORES[i % COLORES.length];
+      b.appendChild(muestra);
+      b.appendChild(el('span', 'nombre', d.nombre));
+      b.appendChild(el('span', 'num', d.n + ' · ' + Math.round(d.n / total * 100) + ' %'));
+      if (d.filtro && d.k !== '__otros') b.addEventListener('click', function () { alPulsarDato(d); });
+      else b.style.cursor = 'default';
+      li.appendChild(b);
+      ley.appendChild(li);
+    });
+    caja.appendChild(ley);
+    cont.appendChild(caja);
+  }
+
+  function pintarTablaDatos(cont, datos, total) {
+    var t = el('table', 'tabla-datos');
+    var cab = el('tr');
+    cab.appendChild(el('th', null, 'Valor'));
+    cab.appendChild(el('th', 'num', 'Incidencias'));
+    cab.appendChild(el('th', 'num', '%'));
+    t.appendChild(cab);
+    datos.forEach(function (d) {
+      var clic = d.filtro && d.k !== '__otros';
+      var tr = el('tr', (clic ? 'clic' : '') + (seleccionado(d) ? ' seleccionada' : ''));
+      tr.appendChild(el('td', null, d.nombre));
+      tr.appendChild(el('td', 'num', String(d.n)));
+      tr.appendChild(el('td', 'num', formatoNumero(d.n / total * 100, 1) + ' %'));
+      if (clic) tr.addEventListener('click', function () { alPulsarDato(d); });
+      t.appendChild(tr);
+    });
+    cont.appendChild(t);
+  }
+
+  // -------------------------------------------------------------------------
+  // Evolución
+  // -------------------------------------------------------------------------
+
   function pintarEvolucion(lista) {
     var cont = $('gEvolucion');
     vaciar(cont);
-    var periodo = $('filtroPeriodo').value;
-    var unidad = periodo === '7' || periodo === '30' ? 'dia' : periodo === '90' ? 'semana' : 'mes';
-    $('evolucionUnidad').textContent = unidad === 'dia' ? '(por día)' : unidad === 'semana' ? '(por semana)' : '(por mes)';
+    var fechas = lista.map(fechaDe).filter(Boolean);
+    if (!fechas.length) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+      return;
+    }
+    var rango = rangoPeriodo();
+    var hoy = new Date();
+    var desde = rango.desde || new Date(Math.min.apply(null, fechas));
+    var hasta = rango.hasta ? new Date(rango.hasta.getTime() - 1) : new Date(Math.max(hoy.getTime(), Math.max.apply(null, fechas)));
+    var dias = diasEntre(desde, hasta) + 1;
+
+    var unidad = $('evolucionAgrupar').value;
+    if (unidad === 'auto') unidad = dias <= 31 ? 'dia' : dias <= 120 ? 'semana' : 'mes';
+    if (unidad === 'dia' && dias > 400) unidad = 'semana';
 
     function inicioTramo(f) {
       if (unidad === 'dia') return new Date(f.getFullYear(), f.getMonth(), f.getDate());
@@ -1102,18 +1356,6 @@
       if (unidad === 'semana') return (larga ? 'Semana del ' : '') + dos(f.getDate()) + '/' + dos(f.getMonth() + 1);
       return MESES[f.getMonth()] + ' ' + String(f.getFullYear()).slice(-2);
     }
-
-    var fechas = lista.map(fechaDe).filter(Boolean);
-    var hoy = new Date();
-    var desde = inicioPeriodo(periodo);
-    if (!desde) {
-      if (!fechas.length) {
-        cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
-        return;
-      }
-      desde = new Date(Math.min.apply(null, fechas));
-    }
-    var hasta = fechas.length ? new Date(Math.max(hoy.getTime(), Math.max.apply(null, fechas))) : hoy;
 
     var tramos = [];
     var indice = {};
@@ -1132,39 +1374,67 @@
       return;
     }
 
+    var linea = $('evolucionTipo').value === 'linea';
     var caja = el('div', 'evolucion');
-    caja.appendChild(el('div', 'evolucion-max', 'Máximo: ' + max + (max === 1 ? ' incidencia' : ' incidencias')));
-    var columnas = el('div', 'columnas');
+    caja.appendChild(el('div', 'evolucion-max', 'Máximo: ' + plural(max, 'incidencia', 'incidencias') +
+      (unidad === 'dia' ? ' en un día' : unidad === 'semana' ? ' en una semana' : ' en un mes')));
+    var columnas = el('div', 'columnas' + (linea ? ' modo-linea' : ''));
     var tooltip = el('div', 'tooltip oculto');
+    var punto = el('div', 'punto oculto');
     var activa = null;
 
-    function mostrarTooltip(col, t) {
+    function mostrarTooltip(col, t, i) {
       if (activa) activa.classList.remove('activa');
       activa = col;
       col.classList.add('activa');
-      tooltip.textContent = etiqueta(t.inicio, true) + ': ' + t.n + (t.n === 1 ? ' incidencia' : ' incidencias');
+      tooltip.textContent = etiqueta(t.inicio, true) + ': ' + plural(t.n, 'incidencia', 'incidencias');
       tooltip.classList.remove('oculto');
       var x = col.offsetLeft + col.offsetWidth / 2;
       var ancho = caja.offsetWidth;
       var mitad = tooltip.offsetWidth / 2;
       tooltip.style.left = Math.max(mitad, Math.min(ancho - mitad, x)) + 'px';
+      if (linea) {
+        punto.classList.remove('oculto');
+        punto.style.left = ((i + 0.5) / tramos.length * 100) + '%';
+        punto.style.bottom = (t.n / max * 100) + '%';
+      }
     }
     function ocultarTooltip() {
       if (activa) activa.classList.remove('activa');
       activa = null;
       tooltip.classList.add('oculto');
+      punto.classList.add('oculto');
     }
 
-    tramos.forEach(function (t) {
+    tramos.forEach(function (t, i) {
       var col = el('div', 'columna');
       var barra = el('div', 'columna-barra');
-      barra.style.height = (t.n / max * 100) + '%';
+      barra.style.height = linea ? '100%' : (t.n / max * 100) + '%';
       col.appendChild(barra);
       col.setAttribute('aria-label', etiqueta(t.inicio, true) + ': ' + t.n);
-      col.addEventListener('mouseenter', function () { mostrarTooltip(col, t); });
-      col.addEventListener('click', function () { mostrarTooltip(col, t); });
+      col.addEventListener('mouseenter', function () { mostrarTooltip(col, t, i); });
+      col.addEventListener('click', function () { mostrarTooltip(col, t, i); });
       columnas.appendChild(col);
     });
+    if (linea) {
+      var ns = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('class', 'linea-svg');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      var pl = document.createElementNS(ns, 'polyline');
+      pl.setAttribute('points', tramos.map(function (t, i) {
+        return ((i + 0.5) / tramos.length * 100).toFixed(3) + ',' + (100 - t.n / max * 100).toFixed(3);
+      }).join(' '));
+      pl.setAttribute('fill', 'none');
+      pl.setAttribute('stroke', '#CE9816');
+      pl.setAttribute('stroke-width', '2');
+      pl.setAttribute('vector-effect', 'non-scaling-stroke');
+      pl.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(pl);
+      columnas.appendChild(svg);
+      columnas.appendChild(punto);
+    }
     columnas.addEventListener('mouseleave', ocultarTooltip);
 
     var eje = el('div', 'evolucion-eje');
@@ -1222,6 +1492,70 @@
     cont.appendChild(leyenda);
   }
 
+  // -------------------------------------------------------------------------
+  // Tarjetas de desglose (cada una con su tipo de gráfico)
+  // -------------------------------------------------------------------------
+
+  function tipoDe(dim) {
+    return (prefs.tipos && prefs.tipos[dim.id]) || dim.tipo;
+  }
+
+  function crearDesgloses() {
+    var cont = $('desglosesDinamicos');
+    vaciar(cont);
+    DIMENSIONES.filter(function (d) { return !d.soloMedida; }).forEach(function (dim) {
+      var t = el('div', 'tarjeta');
+      var cab = el('div', 'tarjeta-cabecera');
+      cab.appendChild(el('h3', null, dim.nombre));
+      var sel = el('select');
+      sel.setAttribute('aria-label', 'Tipo de gráfico de ' + dim.nombre);
+      TIPOS_GRAFICO.forEach(function (o) {
+        var op = el('option', null, o[1]);
+        op.value = o[0];
+        sel.appendChild(op);
+      });
+      sel.value = tipoDe(dim);
+      sel.addEventListener('change', function () {
+        prefs.tipos = prefs.tipos || {};
+        prefs.tipos[dim.id] = sel.value;
+        guardarPrefs();
+        pintarPanel();
+      });
+      var ctrl = el('div', 'tarjeta-controles');
+      ctrl.appendChild(sel);
+      cab.appendChild(ctrl);
+      t.appendChild(cab);
+      var cuerpo = el('div');
+      cuerpo.id = 'd-' + dim.id;
+      t.appendChild(cuerpo);
+      cont.appendChild(t);
+    });
+  }
+
+  /**
+   * Para que un gráfico no se quede con una sola barra al filtrar por su propio valor,
+   * cada desglose se calcula sin su propio filtro y resalta el valor elegido.
+   */
+  function pintarDesgloses() {
+    DIMENSIONES.filter(function (d) { return !d.soloMedida; }).forEach(function (dim) {
+      var base = filtrar(incidenciasPanel, dim.filtro);
+      pintarGrafico($('d-' + dim.id), agrupar(base, dim), tipoDe(dim), {
+        limite: LIMITE_BARRAS,
+        idCaja: 'd-' + dim.id,
+        conCeros: dim.orden === 'dia'
+      });
+    });
+  }
+
+  function pintarMedida() {
+    var dim = dimensionPorId($('medidaDimension').value);
+    var base = filtrar(incidenciasPanel, dim.filtro);
+    pintarGrafico($('gMedida'), agrupar(base, dim), $('medidaTipo').value, {
+      limite: +$('medidaCuantos').value,
+      conCeros: dim.orden === 'dia'
+    });
+  }
+
   /**
    * Tabla de elementos que se repiten (clientes o artículos).
    * claveDe(inc) agrupa; nombreDe(inc) es el texto que se ve; buscar(inc) es lo que se escribe en «Buscar».
@@ -1246,27 +1580,25 @@
     }
     var abierto = !!barrasAbiertas[idCont];
     var visibles = abierto ? repetidos : repetidos.slice(0, LIMITE_BARRAS);
-    var tabla = el('table', 'tabla-repetidos');
+    var tabla = el('table', 'tabla-datos');
     var cab = el('tr');
-    [cabecera, 'Abiertas', 'Total'].forEach(function (t) { cab.appendChild(el('th', null, t)); });
+    cab.appendChild(el('th', null, cabecera));
+    cab.appendChild(el('th', 'num', 'Abiertas'));
+    cab.appendChild(el('th', 'num', 'Total'));
     tabla.appendChild(cab);
     visibles.forEach(function (g) {
-      var tr = el('tr');
-      var td = el('td');
-      var b = el('button', null, g.nombre);
-      b.type = 'button';
-      b.title = 'Ver solo estas incidencias';
-      b.addEventListener('click', function () {
+      var tr = el('tr', 'clic');
+      tr.title = 'Ver estas incidencias en el listado';
+      tr.appendChild(el('td', null, g.nombre));
+      tr.appendChild(el('td', 'num', String(g.abiertas)));
+      tr.appendChild(el('td', 'num', String(g.n)));
+      tr.addEventListener('click', function () {
         $('filtroTexto').value = g.buscar;
-        verFiltrosExtra(true);
-        mostrandoLista = POR_PAGINA;
+        paginaLista = 1;
+        mostrarSub('subListado');
         pintarPanel();
-        $('listaIncidencias').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.scrollTo(0, 0);
       });
-      td.appendChild(b);
-      tr.appendChild(td);
-      tr.appendChild(el('td', null, String(g.abiertas)));
-      tr.appendChild(el('td', null, String(g.n)));
       tabla.appendChild(tr);
     });
     cont.appendChild(tabla);
@@ -1281,18 +1613,137 @@
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Preparación y pintado general
+  // -------------------------------------------------------------------------
+
+  function mostrarSub(id) {
+    ['subGraficos', 'subListado'].forEach(function (s) { $(s).classList.toggle('oculto', s !== id); });
+    var botones = document.querySelectorAll('.subpestana');
+    for (var i = 0; i < botones.length; i++) {
+      botones[i].classList.toggle('activa', botones[i].getAttribute('data-sub') === id);
+    }
+    prefs.sub = id;
+    guardarPrefs();
+  }
+
+  function prepararPanel() {
+    rellenarFiltros();
+    FILTROS.forEach(function (f) { $(f.id).addEventListener('change', alCambiarFiltros); });
+    $('filtroPeriodo').addEventListener('change', function () {
+      var personal = $('filtroPeriodo').value === 'personalizado';
+      $('bloqueFechas').classList.toggle('oculto', !personal);
+      if (personal && !$('filtroDesde').value) {
+        var hoy = new Date();
+        $('filtroDesde').value = hoy.getFullYear() + '-' + dos(hoy.getMonth() + 1) + '-01';
+        $('filtroHasta').value = hoy.getFullYear() + '-' + dos(hoy.getMonth() + 1) + '-' + dos(hoy.getDate());
+      }
+      alCambiarFiltros();
+    });
+    $('filtroDesde').addEventListener('change', alCambiarFiltros);
+    $('filtroHasta').addEventListener('change', alCambiarFiltros);
+    var espera = null;
+    $('filtroTexto').addEventListener('input', function () {
+      clearTimeout(espera);
+      espera = setTimeout(alCambiarFiltros, 250);
+    });
+
+    // En el móvil, los filtros empiezan plegados.
+    if (window.innerWidth < 720) $('filtros').classList.add('plegado');
+    $('btnFiltros').addEventListener('click', function () {
+      var plegado = $('filtros').classList.toggle('plegado');
+      $('btnFiltros').setAttribute('aria-expanded', plegado ? 'false' : 'true');
+    });
+
+    $('btnActualizarPanel').addEventListener('click', function () { cargarPanel(false); });
+    $('btnAnadir').addEventListener('click', function () {
+      mostrarVista('vistaRegistrar');
+      window.scrollTo(0, 0);
+    });
+
+    // Subpestañas
+    var subs = document.querySelectorAll('.subpestana');
+    for (var i = 0; i < subs.length; i++) {
+      subs[i].addEventListener('click', function () { mostrarSub(this.getAttribute('data-sub')); });
+    }
+    mostrarSub(prefs.sub === 'subListado' ? 'subListado' : 'subGraficos');
+
+    // Gráficos
+    crearDesgloses();
+    DIMENSIONES.forEach(function (d) {
+      var o = el('option', null, d.nombre);
+      o.value = d.id;
+      $('medidaDimension').appendChild(o);
+    });
+    var medida = prefs.medida || {};
+    $('medidaDimension').value = medida.dimension || 'tipo';
+    $('medidaTipo').value = medida.tipo || 'barras';
+    $('medidaCuantos').value = medida.cuantos || '10';
+    ['medidaDimension', 'medidaTipo', 'medidaCuantos'].forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        prefs.medida = { dimension: $('medidaDimension').value, tipo: $('medidaTipo').value, cuantos: $('medidaCuantos').value };
+        guardarPrefs();
+        if (incidenciasPanel) pintarMedida();
+      });
+    });
+    $('evolucionTipo').value = prefs.evolucionTipo || 'columnas';
+    $('evolucionAgrupar').value = prefs.evolucionAgrupar || 'auto';
+    ['evolucionTipo', 'evolucionAgrupar'].forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        prefs.evolucionTipo = $('evolucionTipo').value;
+        prefs.evolucionAgrupar = $('evolucionAgrupar').value;
+        guardarPrefs();
+        if (incidenciasPanel) pintarEvolucion(filtrar(incidenciasPanel));
+      });
+    });
+
+    // Listado
+    $('listaOrden').value = prefs.listaOrden || 'reciente';
+    $('listaPorPagina').value = prefs.listaPorPagina || '25';
+    $('listaVista').value = prefs.listaVista || (window.innerWidth < 720 ? 'tarjetas' : 'tabla');
+    ['listaOrden', 'listaPorPagina', 'listaVista'].forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        prefs.listaOrden = $('listaOrden').value;
+        prefs.listaPorPagina = $('listaPorPagina').value;
+        prefs.listaVista = $('listaVista').value;
+        guardarPrefs();
+        paginaLista = 1;
+        if (incidenciasPanel) pintarLista(filtrar(incidenciasPanel));
+      });
+    });
+    var seg = document.querySelectorAll('.segmentado button');
+    for (var j = 0; j < seg.length; j++) {
+      seg[j].addEventListener('click', function () {
+        $('filtroEstado').value = this.getAttribute('data-estado');
+        alCambiarFiltros();
+      });
+    }
+
+    // Indicadores que filtran
+    $('kAbiertas').parentNode.addEventListener('click', function () { alternarFiltro('filtroEstado', 'Abierta'); });
+    $('kAlta').parentNode.addEventListener('click', function () { alternarFiltro('filtroGravedad', 'Alta'); });
+    $('kAbiertas').parentNode.classList.add('indicador-clic');
+    $('kAlta').parentNode.classList.add('indicador-clic');
+
+    // Ventana de detalle
+    $('btnCerrarDetalle').addEventListener('click', cerrarDetalle);
+    $('detalleFondo').addEventListener('click', function (e) { if (e.target === $('detalleFondo')) cerrarDetalle(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cerrarDetalle(); });
+  }
+
   function pintarPanel() {
     if (!incidenciasPanel) return;
-    pintarEstadoFiltros();
+    pintarChips();
     var lista = filtrar(incidenciasPanel);
 
     // Indicadores
+    var abiertas = lista.filter(function (i) { return i['Estado'] !== 'Resuelta'; });
     $('kTotal').textContent = lista.length;
-    $('kAbiertas').textContent = lista.filter(function (i) { return i['Estado'] !== 'Resuelta'; }).length;
+    $('kAbiertas').textContent = abiertas.length;
+    $('kAlta').textContent = lista.filter(function (i) { return i['Gravedad'] === 'Alta'; }).length;
     var clientes = {};
     lista.forEach(function (i) { clientes[claveCliente(i)] = true; });
     $('kClientes').textContent = Object.keys(clientes).length;
-
     var dias = [];
     lista.forEach(function (i) {
       if (i['Estado'] !== 'Resuelta') return;
@@ -1303,31 +1754,13 @@
     $('kDias').textContent = dias.length
       ? formatoNumero(dias.reduce(function (a, b) { return a + b; }, 0) / dias.length, 1)
       : '–';
+    $('kViejas').textContent = abiertas.filter(function (i) { var d = diasAbierta(i); return d !== null && d > 7; }).length;
 
     // Gráficos
     pintarEvolucion(lista);
+    pintarMedida();
     pintarEstado(lista);
-    function barrasDe(idCont, idFiltro, orden) {
-      var f = filtroPorId(idFiltro);
-      pintarBarras($(idCont), contar(lista, function (i) { return valorCampo(i, f); }), orden, idFiltro);
-    }
-    var ordenGravedad = L.gravedades.slice();
-    lista.forEach(function (i) {
-      var g = valorCampo(i, filtroPorId('filtroGravedad'));
-      if (ordenGravedad.indexOf(g) < 0) ordenGravedad.push(g);
-    });
-    barrasDe('dGravedad', 'filtroGravedad', ordenGravedad);
-    barrasDe('dTipo', 'filtroTipo');
-    barrasDe('dDepartamento', 'filtroDepartamento');
-    barrasDe('dFallado', 'filtroFallado');
-    barrasDe('dAsignado', 'filtroAsignado');
-    barrasDe('dInformado', 'filtroInformado');
-    barrasDe('dDestino', 'filtroDestino');
-    pintarBarras($('dDia'), contar(lista, function (i) {
-      var f = fechaDe(i);
-      return f ? DIAS_SEMANA[(f.getDay() + 6) % 7] : 'Sin fecha';
-    }), DIAS_SEMANA);
-
+    pintarDesgloses();
     pintarRepetidos('dRepetidos', lista, claveCliente,
       function (i) { return (i['Cliente'] || 'Sin nombre') + (i['Código cliente'] ? ' (' + i['Código cliente'] + ')' : ''); },
       function (i) { return i['Código cliente'] || i['Cliente'] || ''; },
@@ -1341,31 +1774,114 @@
     pintarLista(lista);
   }
 
+  // -------------------------------------------------------------------------
+  // Listado
+  // -------------------------------------------------------------------------
+
+  var paginaLista = 1;
+  var PESO_GRAVEDAD = { 'Alta': 3, 'Media': 2, 'Baja': 1 };
+
+  function ordenarLista(lista) {
+    var orden = $('listaOrden').value;
+    function tiempo(i) { var f = fechaDe(i); return f ? f.getTime() : 0; }
+    function numero(i) { return parseInt(i['Nº GR-01'], 10) || 0; }
+    var copia = lista.slice();
+    copia.sort(function (a, b) {
+      if (orden === 'antigua') return tiempo(a) - tiempo(b) || numero(a) - numero(b);
+      if (orden === 'gravedad') return (PESO_GRAVEDAD[b['Gravedad']] || 0) - (PESO_GRAVEDAD[a['Gravedad']] || 0) || tiempo(b) - tiempo(a);
+      if (orden === 'dias') return (diasAbierta(b) || 0) - (diasAbierta(a) || 0) || tiempo(b) - tiempo(a);
+      if (orden === 'cliente') return String(a['Cliente'] || '').localeCompare(String(b['Cliente'] || ''), 'es') || tiempo(b) - tiempo(a);
+      if (orden === 'numero') return numero(b) - numero(a) || tiempo(b) - tiempo(a);
+      return tiempo(b) - tiempo(a) || numero(b) - numero(a);
+    });
+    return copia;
+  }
+
   function pintarLista(lista) {
     var cont = $('listaIncidencias');
     vaciar(cont);
     $('cuentaLista').textContent = '(' + lista.length + ')';
+
+    var seg = document.querySelectorAll('.segmentado button');
+    for (var s = 0; s < seg.length; s++) {
+      seg[s].classList.toggle('activo', seg[s].getAttribute('data-estado') === $('filtroEstado').value);
+    }
+
+    var pag = $('paginacion');
+    vaciar(pag);
     if (!lista.length) {
       cont.appendChild(el('p', 'vacio', 'No hay incidencias con estos filtros.'));
-      $('btnVerMas').classList.add('oculto');
       return;
     }
-    var ordenada = lista.slice().sort(function (a, b) {
-      var fa = fechaDe(a), fb = fechaDe(b);
-      var d = (fb ? fb.getTime() : 0) - (fa ? fa.getTime() : 0);
-      if (d) return d;
-      return (parseInt(b['Nº GR-01'], 10) || 0) - (parseInt(a['Nº GR-01'], 10) || 0);
+    var porPagina = +$('listaPorPagina').value || 25;
+    var paginas = Math.ceil(lista.length / porPagina);
+    paginaLista = Math.min(Math.max(1, paginaLista), paginas);
+    var trozo = ordenarLista(lista).slice((paginaLista - 1) * porPagina, paginaLista * porPagina);
+
+    if ($('listaVista').value === 'tarjetas') {
+      trozo.forEach(function (inc) { cont.appendChild(crearTarjetaIncidencia(inc)); });
+    } else {
+      cont.appendChild(crearTablaIncidencias(trozo));
+    }
+
+    if (paginas > 1) {
+      var ant = el('button', 'btn btn-mini btn-claro', '← Anterior');
+      ant.type = 'button';
+      ant.disabled = paginaLista === 1;
+      ant.addEventListener('click', function () { paginaLista--; pintarLista(lista); $('subListado').scrollIntoView(); });
+      var sig = el('button', 'btn btn-mini btn-claro', 'Siguiente →');
+      sig.type = 'button';
+      sig.disabled = paginaLista === paginas;
+      sig.addEventListener('click', function () { paginaLista++; pintarLista(lista); $('subListado').scrollIntoView(); });
+      pag.appendChild(ant);
+      pag.appendChild(el('span', 'nota', 'Página ' + paginaLista + ' de ' + paginas));
+      pag.appendChild(sig);
+    }
+    pag.appendChild(el('span', 'nota', plural(lista.length, 'incidencia', 'incidencias')));
+  }
+
+  function crearTablaIncidencias(trozo) {
+    var caja = el('div', 'tabla-incidencias-caja');
+    var t = el('table', 'tabla-incidencias');
+    var thead = el('thead');
+    var cab = el('tr');
+    [['Nº'], ['Apertura'], ['Cliente'], ['Tipo'], ['Gravedad'], ['Departamento', 'col-media'], ['Descripción', 'col-ancha'], ['Estado'], ['Días']].forEach(function (c) {
+      cab.appendChild(el('th', c[1] || null, c[0]));
     });
-    ordenada.slice(0, mostrandoLista).forEach(function (inc) { cont.appendChild(crearTarjetaIncidencia(inc)); });
-    var quedan = ordenada.length - mostrandoLista;
-    $('btnVerMas').classList.toggle('oculto', quedan <= 0);
-    $('btnVerMas').textContent = 'Ver más (' + Math.max(0, quedan) + ' más)';
+    thead.appendChild(cab);
+    t.appendChild(thead);
+    var tbody = el('tbody');
+    trozo.forEach(function (inc) {
+      var tr = el('tr');
+      tr.tabIndex = 0;
+      tr.title = 'Ver el detalle';
+      var resuelta = inc['Estado'] === 'Resuelta';
+      var dias = diasAbierta(inc);
+      tr.appendChild(el('td', 'nowrap', inc['Nº GR-01'] || '—'));
+      tr.appendChild(el('td', 'nowrap', fechaVisible(inc['Apertura'], true)));
+      tr.appendChild(el('td', null, inc['Cliente'] || ''));
+      tr.appendChild(el('td', null, inc['Tipo incidencia'] || ''));
+      tr.appendChild(el('td', null, inc['Gravedad'] || ''));
+      tr.appendChild(el('td', 'col-media', inc['Departamento'] || ''));
+      var desc = el('td', 'desc col-ancha', inc['Descripción'] || '');
+      desc.title = inc['Descripción'] || '';
+      tr.appendChild(desc);
+      var tdEstado = el('td');
+      tdEstado.appendChild(el('span', 'estado' + (resuelta ? ' resuelta' : ''), inc['Estado'] || 'Abierta'));
+      tr.appendChild(tdEstado);
+      tr.appendChild(el('td', 'nowrap', dias === null ? '' : String(dias)));
+      tr.addEventListener('click', function () { abrirDetalle(inc); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter') abrirDetalle(inc); });
+      tbody.appendChild(tr);
+    });
+    t.appendChild(tbody);
+    caja.appendChild(t);
+    return caja;
   }
 
   function crearTarjetaIncidencia(inc) {
     var resuelta = inc['Estado'] === 'Resuelta';
     var tarjeta = el('div', 'incidencia' + (resuelta ? ' resuelta' : ''));
-
     var cabeza = el('button', 'incidencia-cabeza');
     cabeza.type = 'button';
     var l1 = el('div', 'linea1');
@@ -1376,32 +1892,37 @@
     l1.appendChild(chips);
     cabeza.appendChild(l1);
     cabeza.appendChild(el('div', 'linea2', [
-      fechaVisible(inc['Apertura']),
+      fechaVisible(inc['Apertura'], true),
       inc['Tipo incidencia'],
       inc['Departamento'],
       inc['Nº GR-01'] ? 'Nº ' + inc['Nº GR-01'] : ''
     ].filter(Boolean).join(' · ')));
     if (inc['Descripción']) cabeza.appendChild(el('div', 'linea2', inc['Descripción']));
+    cabeza.addEventListener('click', function () { abrirDetalle(inc); });
     tarjeta.appendChild(cabeza);
-
-    var detalle = el('div', 'incidencia-detalle oculto');
-    tarjeta.appendChild(detalle);
-
-    function abrir() {
-      if (!detalle.firstChild) pintarDetalle(detalle, inc);
-      detalle.classList.remove('oculto');
-    }
-    cabeza.addEventListener('click', function () {
-      if (detalle.classList.contains('oculto')) {
-        abrir();
-        abiertaEnPanel = inc['ID'];
-      } else {
-        detalle.classList.add('oculto');
-        abiertaEnPanel = null;
-      }
-    });
-    if (abiertaEnPanel === inc['ID']) abrir();
     return tarjeta;
+  }
+
+  // -------------------------------------------------------------------------
+  // Ventana de detalle y cierre
+  // -------------------------------------------------------------------------
+
+  function abrirDetalle(inc) {
+    $('detalleTitulo').textContent = (inc['Cliente'] || 'Sin cliente') + (inc['Nº GR-01'] ? ' · Nº ' + inc['Nº GR-01'] : '');
+    var cuerpo = $('detalleCuerpo');
+    vaciar(cuerpo);
+    var detalle = el('div', 'incidencia-detalle');
+    pintarDetalle(detalle, inc);
+    cuerpo.appendChild(detalle);
+    $('detalleFondo').classList.remove('oculto');
+    document.body.classList.add('con-ventana');
+    $('btnCerrarDetalle').focus();
+  }
+
+  function cerrarDetalle() {
+    if ($('detalleFondo').classList.contains('oculto')) return;
+    $('detalleFondo').classList.add('oculto');
+    document.body.classList.remove('con-ventana');
   }
 
   function pintarDetalle(detalle, inc) {
@@ -1412,21 +1933,20 @@
       'Informado por', 'Asignado a', 'Quién ha fallado', 'Comentarios', 'Solución', 'Destino',
       'Origen', 'Registrado por', 'Fecha registro', 'ID'
     ];
-    var ini = fechaDe(inc);
-    var fin = leerFecha(inc['Resolución']);
+    var dias = diasAbierta(inc);
     campos.forEach(function (c) {
       if (!inc[c]) return;
       dl.appendChild(el('dt', null, c));
       var valor = c === 'Apertura' || c === 'Resolución' || c === 'Fecha registro' ? fechaVisible(inc[c]) : inc[c];
       dl.appendChild(el('dd', null, valor));
-      if (c === 'Resolución' && ini && fin) {
+      if (c === 'Resolución' && dias !== null) {
         dl.appendChild(el('dt', null, 'Días abierta'));
-        dl.appendChild(el('dd', null, String(diasEntre(ini, fin))));
+        dl.appendChild(el('dd', null, String(dias)));
       }
     });
-    if (inc['Estado'] !== 'Resuelta' && ini) {
+    if (inc['Estado'] !== 'Resuelta' && dias !== null) {
       dl.appendChild(el('dt', null, 'Días abierta'));
-      dl.appendChild(el('dd', null, String(diasEntre(ini, new Date())) + ' (sigue abierta)'));
+      dl.appendChild(el('dd', null, dias + ' (sigue abierta)'));
     }
     var fotos = ['Foto 1', 'Foto 2', 'Foto 3'].filter(function (c) { return inc[c]; });
     if (fotos.length) {
@@ -1522,8 +2042,8 @@
         for (var i = 0; i < incidenciasPanel.length; i++) {
           if (incidenciasPanel[i]['ID'] === inc['ID']) incidenciasPanel[i] = r.incidencia;
         }
-        abiertaEnPanel = inc['ID'];
         pintarPanel();
+        abrirDetalle(r.incidencia);
       }, function () {
         cargando(false);
         bPrincipal.disabled = false;

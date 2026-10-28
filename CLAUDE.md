@@ -111,7 +111,13 @@ Límites que la interfaz debe explicar en la ayuda (no se pueden resolver en App
 
 ## Panel
 
-Es la pantalla de inicio. Filtros por periodo, estado, gravedad y tipo; en «Más filtros», departamento, asignado a, quién ha fallado, informado por, destino, origen y buscador (cliente, código, artículo, lote, descripción). Indicadores: total, abiertas, clientes afectados y días medios hasta resolver. Gráficos: evolución, abiertas y resueltas, y desglose por gravedad, tipo, departamento, quién ha fallado, asignado a, informado por, destino y día de la semana. Tablas de clientes y artículos con más de una incidencia. Lista con detalle y cierre de cada incidencia. Cálculos en el navegador con los datos de `obtenerIncidencias`.
+Es la pantalla de inicio. Cálculos en el navegador con los datos de `obtenerIncidencias`.
+
+* Barra de filtros siempre visible (plegable en el móvil): periodo (con «Este mes», «Mes anterior» y «Personalizado» con desde y hasta), estado, gravedad, tipo, departamento, asignado a, quién ha fallado, informado por, destino, origen y buscador (cliente, código, artículo, lote, descripción, comentarios, Nº). Cada desplegable muestra cuántas hay de cada valor. Los filtros activos aparecen como etiquetas que se quitan al tocarlas.
+* Indicadores: total, abiertas, gravedad alta, clientes afectados, días medios hasta resolver y abiertas hace más de 7 días. «Abiertas» y «Gravedad alta» filtran al tocarlos.
+* Dos subpestañas: «Gráficos» y «Listado».
+* Gráficos: evolución (columnas o línea; automático, por día, semana o mes), gráfico a medida (eliges qué ver, tipo y cuántos), abiertas y resueltas, un desglose por gravedad, tipo, departamento, quién ha fallado, asignado a, informado por, destino y día de la semana, cada uno con su desplegable de tipo (barras, columnas, circular o tabla), y tablas de clientes y artículos con más de una incidencia.
+* Listado: estado en botones (todas, abiertas, resueltas), ordenar (recientes, antiguas, gravedad, días abierta, cliente, Nº), por página (25, 50, 100), vista en tabla o tarjetas y paginación. El detalle y el cierre se abren en una ventana encima.
 
 ## Comprobaciones antes de dar una fase por terminada
 
@@ -150,4 +156,9 @@ Es la pantalla de inicio. Filtros por periodo, estado, gravedad y tipo; en «Má
 * Días hasta resolver = días naturales entre Apertura y Resolución, igual que la columna DIAS ABIERTO del Excel.
 * Para cerrar una incidencia hay que escribir la solución (sustituye a la regla de «solución distinta de Pendiente»).
 * El periodo por defecto del panel es «Este año», para que se vean los datos del GR-01.
-* Las barras con más de 10 valores enseñan los 10 primeros y «Ver todos». La lista enseña 50 incidencias y «Ver más».
+* Panel rehecho (fase 3): filtros siempre a la vista, subpestañas «Gráficos» y «Listado», tipo de gráfico elegible en cada tarjeta y listado con orden, paginación y tabla o tarjetas.
+* Cada desglose se calcula sin su propio filtro y resalta el valor elegido, para que al filtrar por un valor el gráfico siga enseñando los demás para comparar.
+* Barras, columnas y tablas enseñan los 10 primeros valores (o los que se elijan) con «Ver todos» y una nota con lo que no se muestra. El circular enseña los 5 primeros y junta el resto en «Otros».
+* Colores del circular, en este orden: dorado #CE9816, azul #2a78d6, rojo #e34948, violeta #6250d6, verde agua #1baf7a; «Otros» en gris #9a9890. Validados para daltonismo; siempre con leyenda, número y porcentaje al lado.
+* Las preferencias de vista (tipo de cada gráfico, gráfico a medida, orden, vista y número por página del listado, subpestaña) se recuerdan en el navegador de cada persona.
+* En el móvil, los filtros empiezan plegados y el listado se ve en tarjetas; en pantallas grandes, en tabla.
