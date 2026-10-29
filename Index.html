@@ -157,11 +157,95 @@
 
         <!-- Gráficos / Listado -->
         <div class="subpestanas" role="tablist">
-          <button type="button" class="subpestana activa" data-sub="subGraficos" role="tab">Gráficos</button>
+          <button type="button" class="subpestana activa" data-sub="subMejora" role="tab">¿Mejoramos?</button>
+          <button type="button" class="subpestana" data-sub="subGraficos" role="tab">Gráficos</button>
           <button type="button" class="subpestana" data-sub="subListado" role="tab">Listado <span id="cuentaLista" class="nota"></span></button>
         </div>
 
-        <div id="subGraficos">
+        <div id="subMejora">
+          <div class="desgloses">
+            <div class="tarjeta tarjeta-ancha">
+              <div class="tarjeta-cabecera">
+                <h3>¿Estamos mejorando?</h3>
+                <div class="tarjeta-controles">
+                  <select id="mejoraModo" aria-label="Qué comparar">
+                    <option value="1">Último mes y el anterior</option>
+                    <option value="3" selected>Últimos 3 meses y los 3 anteriores</option>
+                    <option value="4">Últimos 4 meses y los 4 anteriores</option>
+                    <option value="6">Últimos 6 meses y los 6 anteriores</option>
+                    <option value="personalizado">Elegir meses…</option>
+                  </select>
+                  <select id="mejoraMedida" aria-label="Cómo contar">
+                    <option value="dia">Por día laborable</option>
+                    <option value="total">Total del periodo</option>
+                  </select>
+                </div>
+              </div>
+              <div id="mejoraMeses" class="mejora-meses oculto">
+                <div>
+                  <span class="mejora-etiqueta mejora-a">Antes</span>
+                  <label for="mejoraADesde" class="solo-lector">Antes, desde</label>
+                  <select id="mejoraADesde"></select>
+                  <span>a</span>
+                  <label for="mejoraAHasta" class="solo-lector">Antes, hasta</label>
+                  <select id="mejoraAHasta"></select>
+                </div>
+                <div>
+                  <span class="mejora-etiqueta mejora-b">Ahora</span>
+                  <label for="mejoraBDesde" class="solo-lector">Ahora, desde</label>
+                  <select id="mejoraBDesde"></select>
+                  <span>a</span>
+                  <label for="mejoraBHasta" class="solo-lector">Ahora, hasta</label>
+                  <select id="mejoraBHasta"></select>
+                </div>
+              </div>
+              <p id="mejoraPeriodos" class="nota"></p>
+              <div id="mejoraVeredicto" class="mejora-veredicto"></div>
+              <div id="mejoraIndicadores" class="mejora-indicadores"></div>
+            </div>
+
+            <div class="tarjeta tarjeta-ancha">
+              <div class="tarjeta-cabecera">
+                <h3>Por sección</h3>
+                <div class="tarjeta-controles">
+                  <select id="mejoraDimension" aria-label="Sección"></select>
+                  <select id="mejoraTipo" aria-label="Tipo de gráfico">
+                    <option value="diferencia">Diferencia</option>
+                    <option value="columnas">Antes y ahora</option>
+                    <option value="calor">Mes a mes</option>
+                    <option value="tabla">Tabla</option>
+                  </select>
+                </div>
+              </div>
+              <div id="mejoraResumen" class="mejora-resumen"></div>
+              <div id="gMejora"></div>
+            </div>
+
+            <div class="tarjeta tarjeta-ancha">
+              <div class="tarjeta-cabecera">
+                <h3>Todo el histórico, mes a mes</h3>
+                <div class="tarjeta-controles">
+                  <select id="mensualIndicador" aria-label="Indicador">
+                    <option value="incidencias">Incidencias por día laborable</option>
+                    <option value="total">Incidencias del mes</option>
+                    <option value="dias">Días medios hasta resolver</option>
+                    <option value="rapidas">% resueltas en 2 días o menos</option>
+                    <option value="graves">% gravedad media o alta</option>
+                  </select>
+                  <select id="mensualTipo" aria-label="Tipo de gráfico">
+                    <option value="columnas">Columnas</option>
+                    <option value="linea">Línea</option>
+                    <option value="tabla">Tabla</option>
+                  </select>
+                </div>
+              </div>
+              <div id="gMensual"></div>
+            </div>
+          </div>
+          <p class="nota">Esta pestaña compara periodos y no usa el filtro de periodo; el resto de filtros sí se aplican. «Por día laborable» cuenta de lunes a viernes sin festivos. No tiene en cuenta cuántos pedidos se sirvieron cada mes, porque ese dato no está en el registro.</p>
+        </div>
+
+        <div id="subGraficos" class="oculto">
           <div class="desgloses">
             <div class="tarjeta tarjeta-ancha">
               <div class="tarjeta-cabecera">

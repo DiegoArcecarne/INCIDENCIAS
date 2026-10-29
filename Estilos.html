@@ -395,6 +395,11 @@
   .filtro-activo { border-color: var(--dorado); background: var(--dorado-claro); }
 
   .tarjeta-ancha { grid-column: 1 / -1; }
+  .tarjeta { min-width: 0; }
+  .desgloses { grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 720px) {
+    .desgloses { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  }
 
   /* Barras que filtran al tocarlas */
   .barra-boton {
@@ -729,6 +734,64 @@
   body.con-ventana { overflow: hidden; }
   .indicador-clic { cursor: pointer; }
   .indicador-clic:hover { outline: 2px solid var(--dorado); }
+
+  /* ---------- ¿Mejoramos? ---------- */
+  .solo-lector { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .mejora-meses { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 8px; }
+  .mejora-meses > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .mejora-meses select { width: auto; margin: 0; padding: 5px 8px; font-size: 14px; }
+  .mejora-etiqueta { font-size: 13px; font-weight: bold; padding: 2px 8px; border-radius: 10px; }
+  .mejora-a { background: #E6E5E1; color: var(--negro); }
+  .mejora-b { background: var(--dorado-claro); color: var(--negro); border: 1px solid var(--dorado); }
+  .mejora-veredicto { font-size: 16px; line-height: 1.5; margin: 6px 0 12px; }
+  .mejora-veredicto p { margin: 0 0 4px; }
+  .mejora-indicadores { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 560px) { .mejora-indicadores { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .mejora-indicadores { grid-template-columns: repeat(4, 1fr); } }
+  .mejora-ind { border: 1px solid var(--gris-claro); border-left: 5px solid #BBBBBB; border-radius: 6px; padding: 10px 12px; }
+  .mejora-ind.mejora { border-left-color: var(--verde); }
+  .mejora-ind.empeora { border-left-color: var(--rojo); }
+  .mejora-ind h4 { margin: 0 0 6px; font-size: 14px; font-weight: normal; color: var(--gris); }
+  .mejora-ind .valores { font-size: 15px; }
+  .mejora-ind .valores b { font-size: 22px; }
+  .mejora-ind .cambio { margin-top: 4px; font-size: 14px; font-weight: bold; }
+  .veredicto { display: inline-block; font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .veredicto.mejora { background: var(--verde-claro); color: var(--verde); }
+  .veredicto.empeora { background: var(--rojo-claro); color: var(--rojo); }
+  .veredicto.igual, .veredicto.pocos { background: var(--fondo); color: var(--gris); }
+  .mejora-resumen { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 12px; font-size: 14px; }
+  @media (min-width: 720px) { .mejora-resumen { grid-template-columns: 1fr 1fr; } }
+  .mejora-resumen div { border-radius: 6px; padding: 8px 10px; }
+  .mejora-resumen .lista-mejora { background: var(--verde-claro); }
+  .mejora-resumen .lista-empeora { background: var(--rojo-claro); }
+
+  /* Diferencia: barras a izquierda (mejora) y derecha (empeora) */
+  .dif-fila { display: grid; grid-template-columns: minmax(90px, 30%) 1fr; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 14px; }
+  .dif-fila .nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dif-eje { position: relative; height: 22px; }
+  .dif-eje::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px solid #888888; }
+  .dif-barra { position: absolute; top: 4px; height: 14px; }
+  .dif-barra.mejora { right: 50%; background: var(--verde); border-radius: 4px 0 0 4px; }
+  .dif-barra.empeora { left: 50%; background: var(--rojo); border-radius: 0 4px 4px 0; }
+  .dif-texto { position: absolute; top: 2px; font-size: 12px; white-space: nowrap; color: var(--negro); }
+  .dif-leyenda { display: flex; justify-content: space-between; font-size: 12px; color: var(--gris); margin: 0 0 6px; padding-left: calc(min(30%, 9999px) + 8px); }
+
+  /* Antes y ahora */
+  .par-fila { margin-bottom: 8px; font-size: 14px; }
+  .par-barra { display: flex; align-items: center; gap: 6px; height: 12px; margin-top: 3px; }
+  .par-barra i { display: block; height: 10px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .par-barra span { font-size: 12px; color: var(--gris); white-space: nowrap; }
+  .par-a i { background: #9a9890; }
+  .par-b i { background: var(--dorado); }
+
+  /* Mapa de calor */
+  .calor-caja { overflow-x: auto; }
+  .calor { border-collapse: separate; border-spacing: 2px; font-size: 12px; min-width: 100%; }
+  .calor th { font-weight: normal; color: var(--gris); padding: 2px 4px; white-space: nowrap; }
+  .calor th.fila { text-align: left; color: var(--negro); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  .calor td { text-align: center; padding: 6px 4px; border-radius: 3px; min-width: 34px; }
+  .calor td.periodo-a { box-shadow: inset 0 -3px 0 #9a9890; }
+  .calor td.periodo-b { box-shadow: inset 0 -3px 0 var(--negro); }
 
   /* ---------- Cargando ---------- */
   .cargando {

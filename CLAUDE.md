@@ -115,7 +115,8 @@ Es la pantalla de inicio. Cálculos en el navegador con los datos de `obtenerInc
 
 * Barra de filtros siempre visible (plegable en el móvil): periodo (con «Este mes», «Mes anterior» y «Personalizado» con desde y hasta), estado, gravedad, tipo, departamento, asignado a, quién ha fallado, informado por, destino, origen y buscador (cliente, código, artículo, lote, descripción, comentarios, Nº). Cada desplegable muestra cuántas hay de cada valor. Los filtros activos aparecen como etiquetas que se quitan al tocarlas.
 * Indicadores: total, abiertas, gravedad alta, clientes afectados, días medios hasta resolver y abiertas hace más de 7 días. «Abiertas» y «Gravedad alta» filtran al tocarlos.
-* Dos subpestañas: «Gráficos» y «Listado».
+* Tres subpestañas: «¿Mejoramos?» (la primera y principal), «Gráficos» y «Listado».
+* ¿Mejoramos?: compara dos periodos (último mes, últimos 3, 4 o 6 meses frente a los anteriores, o meses elegidos) por día laborable o en total. Indicadores: incidencias, días medios hasta resolver, % resueltas en 2 días o menos y % con gravedad media o alta, cada uno con «Mejora», «Empeora» o «Igual». «Por sección» enseña qué departamentos, tipos, etc. mejoran o empeoran, en gráfico de diferencia, antes y ahora, mapa de calor mes a mes o tabla. «Todo el histórico, mes a mes» enseña cada indicador por mes en columnas, línea o tabla.
 * Gráficos: evolución (columnas o línea; automático, por día, semana o mes), gráfico a medida (eliges qué ver, tipo y cuántos), abiertas y resueltas, un desglose por gravedad, tipo, departamento, quién ha fallado, asignado a, informado por, destino y día de la semana, cada uno con su desplegable de tipo (barras, columnas, circular o tabla), y tablas de clientes y artículos con más de una incidencia.
 * Listado: estado en botones (todas, abiertas, resueltas), ordenar (recientes, antiguas, gravedad, días abierta, cliente, Nº), por página (25, 50, 100), vista en tabla o tarjetas y paginación. El detalle y el cierre se abren en una ventana encima.
 
@@ -162,3 +163,8 @@ Es la pantalla de inicio. Cálculos en el navegador con los datos de `obtenerInc
 * Colores del circular, en este orden: dorado #CE9816, azul #2a78d6, rojo #e34948, violeta #6250d6, verde agua #1baf7a; «Otros» en gris #9a9890. Validados para daltonismo; siempre con leyenda, número y porcentaje al lado.
 * Las preferencias de vista (tipo de cada gráfico, gráfico a medida, orden, vista y número por página del listado, subpestaña) se recuerdan en el navegador de cada persona.
 * En el móvil, los filtros empiezan plegados y el listado se ve en tarjetas; en pantallas grandes, en tabla.
+* Fase 4: «¿Mejoramos?» es la métrica principal del panel y su primera subpestaña. Usa todos los filtros menos el periodo.
+* «Mejora» o «Empeora» solo si el cambio es de un 10 % o más (3 puntos o más en los porcentajes). Con menos de 6 incidencias entre los dos periodos (10 por cada valor de una sección), «Pocos datos».
+* Para comparar periodos de distinta duración, por defecto se cuenta por día laborable (lunes a viernes, sin festivos). Si el último dato registrado es anterior al final del periodo, el periodo se cuenta solo hasta ese día.
+* No se mide la tasa de incidencias por pedido porque el número de pedidos no está en el registro. Si se consigue, sería la mejor forma de saber si se mejora.
+* Colores de «¿Mejoramos?»: verde para mejora y rojo para empeora, siempre con flecha y texto («▼ Mejora», «▲ Empeora»); gris para igual y para «Antes»; dorado para «Ahora».

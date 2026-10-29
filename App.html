@@ -979,8 +979,8 @@
     return { desde: new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - (+p - 1)), hasta: manana };
   }
 
-  function filtrar(lista, sinFiltro) {
-    var rango = rangoPeriodo();
+  function filtrar(lista, sinFiltro, sinPeriodo) {
+    var rango = sinPeriodo ? { desde: null, hasta: null } : rangoPeriodo();
     var activos = FILTROS.filter(function (f) { return f.id !== sinFiltro && $(f.id).value; });
     var texto = normalizar($('filtroTexto').value);
     return lista.filter(function (inc) {
@@ -1618,7 +1618,7 @@
   // -------------------------------------------------------------------------
 
   function mostrarSub(id) {
-    ['subGraficos', 'subListado'].forEach(function (s) { $(s).classList.toggle('oculto', s !== id); });
+    ['subMejora', 'subGraficos', 'subListado'].forEach(function (s) { $(s).classList.toggle('oculto', s !== id); });
     var botones = document.querySelectorAll('.subpestana');
     for (var i = 0; i < botones.length; i++) {
       botones[i].classList.toggle('activa', botones[i].getAttribute('data-sub') === id);
@@ -1666,7 +1666,10 @@
     for (var i = 0; i < subs.length; i++) {
       subs[i].addEventListener('click', function () { mostrarSub(this.getAttribute('data-sub')); });
     }
-    mostrarSub(prefs.sub === 'subListado' ? 'subListado' : 'subGraficos');
+    mostrarSub(prefs.sub === 'subListado' || prefs.sub === 'subGraficos' ? prefs.sub : 'subMejora');
+
+    // ¿Mejoramos?
+    prepararMejora();
 
     // Gráficos
     crearDesgloses();
@@ -1756,6 +1759,9 @@
       : '–';
     $('kViejas').textContent = abiertas.filter(function (i) { var d = diasAbierta(i); return d !== null && d > 7; }).length;
 
+    // ¿Mejoramos?
+    pintarMejora();
+
     // Gráficos
     pintarEvolucion(lista);
     pintarMedida();
@@ -1772,6 +1778,564 @@
       'Artículo', 'Ningún artículo repite con estos filtros.');
 
     pintarLista(lista);
+  }
+
+  // -------------------------------------------------------------------------
+  // ¿Mejoramos? Comparación entre dos periodos y evolución de todo el histórico
+  // -------------------------------------------------------------------------
+
+  var MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+    'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var UMBRAL_CAMBIO = 0.10;   // menos de un 10 % de diferencia cuenta como «igual»
+  var MINIMO_DATOS = 6;       // con menos incidencias entre los dos periodos, «pocos datos»
+  var MINIMO_SECCION = 10;    // lo mismo para cada valor de una sección (departamento, tipo...)
+
+  function claveMes(f) { return f.getFullYear() + '-' + dos(f.getMonth() + 1); }
+  function mesDeClave(k) { return new Date(+k.slice(0, 4), +k.slice(5) - 1, 1); }
+  function nombreMes(k, corto) {
+    var f = mesDeClave(k);
+    return corto ? MESES[f.getMonth()] + ' ' + String(f.getFullYear()).slice(-2) : MESES_LARGOS[f.getMonth()] + ' ' + f.getFullYear();
+  }
+  function sumarMeses(k, n) { var f = mesDeClave(k); return claveMes(new Date(f.getFullYear(), f.getMonth() + n, 1)); }
+
+  /** Días de lunes a viernes entre desde (incluido) y hasta (no incluido). */
+  function diasLaborables(desde, hasta) {
+    var n = 0;
+    for (var f = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate()); f < hasta; f = new Date(f.getFullYear(), f.getMonth(), f.getDate() + 1)) {
+      var d = f.getDay();
+      if (d !== 0 && d !== 6) n++;
+    }
+    return n;
+  }
+
+  /** Último día con datos (de todas las incidencias, sin filtros) + 1, para no contar días sin registrar. */
+  function finDatos() {
+    var max = null;
+    (incidenciasPanel || []).forEach(function (i) {
+      var f = leerFecha(i['Apertura']);
+      if (f && (!max || f > max)) max = f;
+    });
+    var hoy = new Date();
+    var fin = max ? new Date(max.getFullYear(), max.getMonth(), max.getDate() + 1) : hoy;
+    return fin > hoy ? hoy : fin;
+  }
+
+  function primerMes() {
+    var min = null;
+    (incidenciasPanel || []).forEach(function (i) {
+      var f = leerFecha(i['Apertura']);
+      if (f && (!min || f < min)) min = f;
+    });
+    return claveMes(min || new Date());
+  }
+
+  /** Periodo de meses [desde, hasta] (claves) -> { desde, hasta (no incluido), laborables, nombre } */
+  function periodoMeses(kDesde, kHasta) {
+    var desde = mesDeClave(kDesde);
+    var finMes = mesDeClave(sumarMeses(kHasta, 1));
+    var fin = finDatos();
+    var hasta = finMes < fin ? finMes : fin;
+    var nombre = kDesde === kHasta ? nombreMes(kDesde) : nombreMes(kDesde) + ' a ' + nombreMes(kHasta);
+    return {
+      desde: desde,
+      hasta: hasta,
+      laborables: hasta > desde ? diasLaborables(desde, hasta) : 0,
+      nombre: nombre,
+      recortado: hasta < finMes,
+      meses: [kDesde, kHasta]
+    };
+  }
+
+  function periodosElegidos() {
+    var modo = $('mejoraModo').value;
+    if (modo === 'personalizado') {
+      var a = [$('mejoraADesde').value, $('mejoraAHasta').value].sort();
+      var b = [$('mejoraBDesde').value, $('mejoraBHasta').value].sort();
+      return { a: periodoMeses(a[0], a[1]), b: periodoMeses(b[0], b[1]) };
+    }
+    var n = +modo;
+    var ultimo = sumarMeses(claveMes(new Date()), -1);  // último mes completo
+    var bDesde = sumarMeses(ultimo, -(n - 1));
+    return {
+      a: periodoMeses(sumarMeses(bDesde, -n), sumarMeses(bDesde, -1)),
+      b: periodoMeses(bDesde, ultimo)
+    };
+  }
+
+  function dentro(inc, p) {
+    var f = fechaDe(inc);
+    return f && f >= p.desde && f < p.hasta;
+  }
+
+  /** Indicadores de un conjunto de incidencias en un periodo. */
+  function medir(lista, p) {
+    var resueltas = lista.filter(function (i) { return i['Estado'] === 'Resuelta'; });
+    var dias = [];
+    resueltas.forEach(function (i) {
+      var ini = fechaDe(i);
+      var fin = leerFecha(i['Resolución']);
+      if (ini && fin && fin >= ini) dias.push(diasEntre(ini, fin));
+    });
+    var rapidas = dias.filter(function (d) { return d <= 2; }).length;
+    var graves = lista.filter(function (i) { return i['Gravedad'] === 'Media' || i['Gravedad'] === 'Alta'; }).length;
+    return {
+      total: lista.length,
+      porDia: p && p.laborables ? lista.length / p.laborables : null,
+      dias: dias.length ? dias.reduce(function (a, b) { return a + b; }, 0) / dias.length : null,
+      rapidas: lista.length ? rapidas / lista.length * 100 : null,
+      graves: lista.length ? graves / lista.length * 100 : null,
+      abiertas: lista.length - resueltas.length
+    };
+  }
+
+  /**
+   * Veredicto de un cambio. menosEsMejor: true si bajar es bueno.
+   * Devuelve { clase: 'mejora'|'empeora'|'igual'|'pocos', texto, cambio (texto con signo) }
+   */
+  function veredicto(a, b, menosEsMejor, opciones) {
+    opciones = opciones || {};
+    if (a === null || b === null || a === undefined || b === undefined) return { clase: 'pocos', texto: 'Sin datos', cambio: '' };
+    if (opciones.pocos) return { clase: 'pocos', texto: 'Pocos datos', cambio: '' };
+    var dif = b - a;
+    var relativo = a ? dif / a : (b ? 1 : 0);
+    var cambio;
+    if (opciones.puntos) cambio = (dif > 0 ? '+' : '') + formatoNumero(dif, 1) + ' puntos';
+    else cambio = a ? (dif > 0 ? '+' : '') + formatoNumero(relativo * 100, 0) + ' %' : 'nuevo';
+    var igual = opciones.puntos ? Math.abs(dif) < 3 : Math.abs(relativo) < UMBRAL_CAMBIO;
+    if (igual) return { clase: 'igual', texto: 'Igual', cambio: cambio };
+    var mejor = menosEsMejor ? dif < 0 : dif > 0;
+    return { clase: mejor ? 'mejora' : 'empeora', texto: mejor ? 'Mejora' : 'Empeora', cambio: cambio };
+  }
+
+  function etiquetaVeredicto(v) {
+    var s = el('span', 'veredicto ' + v.clase, (v.clase === 'mejora' ? '▼ ' : v.clase === 'empeora' ? '▲ ' : '') + v.texto);
+    return s;
+  }
+
+  function prepararMejora() {
+    // Meses disponibles para «Elegir meses…»
+    var opcionesMeses = function () {
+      var lista = [];
+      var actual = claveMes(new Date());
+      for (var k = primerMes(); k <= actual && lista.length < 60; k = sumarMeses(k, 1)) lista.push(k);
+      return lista;
+    };
+    function rellenarMeses() {
+      var meses = opcionesMeses();
+      ['mejoraADesde', 'mejoraAHasta', 'mejoraBDesde', 'mejoraBHasta'].forEach(function (id) {
+        var sel = $(id);
+        var antes = sel.value;
+        vaciar(sel);
+        meses.forEach(function (k) {
+          var o = el('option', null, nombreMes(k, true));
+          o.value = k;
+          sel.appendChild(o);
+        });
+        if (meses.indexOf(antes) >= 0) sel.value = antes;
+      });
+      // Los meses por defecto se eligen cuando ya hay datos cargados.
+      if (!$('mejoraADesde').dataset.listo && incidenciasPanel && incidenciasPanel.length) {
+        var p = periodosElegidosPorDefecto(meses);
+        $('mejoraADesde').value = p[0];
+        $('mejoraAHasta').value = p[1];
+        $('mejoraBDesde').value = p[2];
+        $('mejoraBHasta').value = p[3];
+        $('mejoraADesde').dataset.listo = '1';
+      }
+    }
+    function periodosElegidosPorDefecto(meses) {
+      // Primera mitad del histórico frente a la segunda, en meses completos.
+      var completos = meses.slice(0, -1);
+      if (completos.length < 2) completos = meses;
+      var mitad = Math.floor(completos.length / 2);
+      return [completos[0], completos[mitad - 1] || completos[0], completos[completos.length - mitad] || completos[0], completos[completos.length - 1]];
+    }
+    prepararMejora.rellenarMeses = rellenarMeses;
+
+    DIMENSIONES.filter(function (d) { return d.id !== 'mes' && d.id !== 'origen' && d.id !== 'estado'; }).forEach(function (d) {
+      var o = el('option', null, d.nombre);
+      o.value = d.id;
+      $('mejoraDimension').appendChild(o);
+    });
+    var m = prefs.mejora || {};
+    $('mejoraModo').value = m.modo || '3';
+    $('mejoraMedida').value = m.medida || 'dia';
+    $('mejoraDimension').value = m.dimension || 'departamento';
+    $('mejoraTipo').value = m.tipo || 'diferencia';
+    $('mensualIndicador').value = m.indicador || 'incidencias';
+    $('mensualTipo').value = m.mensualTipo || 'columnas';
+    ['mejoraModo', 'mejoraMedida', 'mejoraDimension', 'mejoraTipo', 'mensualIndicador', 'mensualTipo',
+      'mejoraADesde', 'mejoraAHasta', 'mejoraBDesde', 'mejoraBHasta'].forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        prefs.mejora = {
+          modo: $('mejoraModo').value,
+          medida: $('mejoraMedida').value,
+          dimension: $('mejoraDimension').value,
+          tipo: $('mejoraTipo').value,
+          indicador: $('mensualIndicador').value,
+          mensualTipo: $('mensualTipo').value
+        };
+        guardarPrefs();
+        if (incidenciasPanel) pintarMejora();
+      });
+    });
+  }
+
+  function pintarMejora() {
+    if (!incidenciasPanel) return;
+    prepararMejora.rellenarMeses();
+    $('mejoraMeses').classList.toggle('oculto', $('mejoraModo').value !== 'personalizado');
+
+    var base = filtrar(incidenciasPanel, null, true);
+    var p = periodosElegidos();
+    var listaA = base.filter(function (i) { return dentro(i, p.a); });
+    var listaB = base.filter(function (i) { return dentro(i, p.b); });
+    var mA = medir(listaA, p.a);
+    var mB = medir(listaB, p.b);
+    var porDia = $('mejoraMedida').value === 'dia';
+
+    // Periodos
+    var fin = finDatos();
+    var notaFin = p.b.recortado ? ' Ojo: hay datos hasta el ' + fechaVisible(claveDia(new Date(fin.getTime() - 86400000)), true) +
+      '; «Ahora» se cuenta hasta ese día.' : '';
+    $('mejoraPeriodos').textContent = 'Antes: ' + p.a.nombre + ' (' + plural(listaA.length, 'incidencia', 'incidencias') + ', ' +
+      p.a.laborables + ' días laborables). Ahora: ' + p.b.nombre + ' (' + plural(listaB.length, 'incidencia', 'incidencias') + ', ' +
+      p.b.laborables + ' días laborables).' + notaFin;
+
+    // Indicadores
+    var indicadores = [
+      {
+        nombre: porDia ? 'Incidencias por día laborable' : 'Incidencias',
+        a: porDia ? mA.porDia : mA.total, b: porDia ? mB.porDia : mB.total, decimales: porDia ? 1 : 0,
+        menosEsMejor: true, frase: ['hay menos incidencias', 'hay más incidencias']
+      },
+      {
+        nombre: 'Días medios hasta resolver', a: mA.dias, b: mB.dias, decimales: 1, menosEsMejor: true,
+        frase: ['se resuelven antes', 'se tarda más en resolver']
+      },
+      {
+        nombre: '% resueltas en 2 días o menos', a: mA.rapidas, b: mB.rapidas, decimales: 0, menosEsMejor: false, puntos: true, sufijo: ' %',
+        frase: ['se cierran más en 2 días o menos', 'se cierran menos en 2 días o menos']
+      },
+      {
+        nombre: '% con gravedad media o alta', a: mA.graves, b: mB.graves, decimales: 0, menosEsMejor: true, puntos: true, sufijo: ' %',
+        frase: ['son menos graves', 'son más graves']
+      }
+    ];
+    var cont = $('mejoraIndicadores');
+    vaciar(cont);
+    var mejoras = [], empeoras = [];
+    var pocos = listaA.length + listaB.length < MINIMO_DATOS || !listaA.length || !listaB.length;
+    indicadores.forEach(function (ind) {
+      var v = veredicto(ind.a, ind.b, ind.menosEsMejor, { puntos: ind.puntos, pocos: pocos });
+      if (v.clase === 'mejora') mejoras.push(ind.frase[0] + ' (' + v.cambio + ')');
+      if (v.clase === 'empeora') empeoras.push(ind.frase[1] + ' (' + v.cambio + ')');
+      var caja = el('div', 'mejora-ind ' + v.clase);
+      caja.appendChild(el('h4', null, ind.nombre));
+      var valores = el('div', 'valores');
+      var fmt = function (x) { return x === null ? '–' : formatoNumero(x, ind.decimales) + (ind.sufijo || ''); };
+      valores.appendChild(document.createTextNode(fmt(ind.a) + ' → '));
+      valores.appendChild(el('b', null, fmt(ind.b)));
+      caja.appendChild(valores);
+      var cambio = el('div', 'cambio');
+      cambio.appendChild(etiquetaVeredicto(v));
+      if (v.cambio) cambio.appendChild(document.createTextNode(' ' + v.cambio));
+      caja.appendChild(cambio);
+      cont.appendChild(caja);
+    });
+
+    // Frase resumen
+    var ver = $('mejoraVeredicto');
+    vaciar(ver);
+    if (pocos) {
+      ver.appendChild(el('p', null, 'No hay datos suficientes en los dos periodos para comparar. Prueba con otros meses o quita filtros.'));
+    } else {
+      if (mejoras.length) ver.appendChild(el('p', null, '✔ Mejoramos: ' + mejoras.join('; ') + '.'));
+      if (empeoras.length) ver.appendChild(el('p', null, '✘ Empeoramos: ' + empeoras.join('; ') + '.'));
+      if (!mejoras.length && !empeoras.length) ver.appendChild(el('p', null, 'Sin cambios importantes entre los dos periodos.'));
+    }
+
+    pintarMejoraSecciones(base, listaA, listaB, p, porDia);
+    pintarMensual(base);
+  }
+
+  function claveDia(f) { return f.getFullYear() + '-' + dos(f.getMonth() + 1) + '-' + dos(f.getDate()); }
+
+  /** Compara cada valor de una sección (departamento, tipo...) entre los dos periodos. */
+  function pintarMejoraSecciones(base, listaA, listaB, p, porDia) {
+    var dim = dimensionPorId($('mejoraDimension').value);
+    var gA = {}, gB = {};
+    agrupar(listaA, dim).forEach(function (d) { gA[d.k] = d; });
+    agrupar(listaB, dim).forEach(function (d) { gB[d.k] = d; });
+    var claves = Object.keys(gA).concat(Object.keys(gB).filter(function (k) { return !(k in gA); }))
+      .filter(function (k) { return (gA[k] ? gA[k].n : 0) + (gB[k] ? gB[k].n : 0) > 0; });
+
+    var filas = claves.map(function (k) {
+      var nA = gA[k] ? gA[k].n : 0;
+      var nB = gB[k] ? gB[k].n : 0;
+      var a = porDia ? (p.a.laborables ? nA / p.a.laborables : 0) : nA;
+      var b = porDia ? (p.b.laborables ? nB / p.b.laborables : 0) : nB;
+      var v = veredicto(a, b, true, { pocos: nA + nB < MINIMO_SECCION });
+      return { k: k, nombre: (gA[k] || gB[k]).nombre, nA: nA, nB: nB, a: a, b: b, dif: b - a, v: v };
+    });
+    filas.sort(function (x, y) { return x.dif - y.dif; });
+
+    // Resumen: las que más mejoran y las que más empeoran
+    var res = $('mejoraResumen');
+    vaciar(res);
+    // «Sin indicar» no es una sección: se ve en el gráfico pero no entra en el resumen.
+    var conNombre = filas.filter(function (f) { return ['Sin indicar', 'No aplica', 'Sin fecha', 'Sin cliente', 'Sin artículo'].indexOf(f.k) < 0; });
+    var mejoran = conNombre.filter(function (f) { return f.v.clase === 'mejora'; }).slice(0, 5);
+    var empeoran = conNombre.filter(function (f) { return f.v.clase === 'empeora'; }).reverse().slice(0, 5);
+    var cajaM = el('div', 'lista-mejora');
+    cajaM.appendChild(el('b', null, '▼ Mejoran: '));
+    cajaM.appendChild(document.createTextNode(mejoran.length ? mejoran.map(function (f) { return f.nombre + ' (' + f.v.cambio + ')'; }).join(', ') : 'ninguna'));
+    var cajaE = el('div', 'lista-empeora');
+    cajaE.appendChild(el('b', null, '▲ Empeoran: '));
+    cajaE.appendChild(document.createTextNode(empeoran.length ? empeoran.map(function (f) { return f.nombre + ' (' + f.v.cambio + ')'; }).join(', ') : 'ninguna'));
+    res.appendChild(cajaM);
+    res.appendChild(cajaE);
+
+    var cont = $('gMejora');
+    vaciar(cont);
+    if (!filas.length) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+      return;
+    }
+    var tipo = $('mejoraTipo').value;
+    var fmt = function (x) { return formatoNumero(x, porDia ? 2 : 0); };
+    var abierto = !!barrasAbiertas.gMejora;
+    var visibles = abierto ? filas : filas.filter(function (f) { return f.v.clase !== 'pocos'; });
+    if (!abierto && tipo !== 'tabla') {
+      // Las 12 con más cambio, en orden de mejora a empeora
+      visibles = visibles.slice().sort(function (x, y) { return Math.abs(y.dif) - Math.abs(x.dif); }).slice(0, 12)
+        .sort(function (x, y) { return x.dif - y.dif; });
+    }
+
+    if (tipo === 'diferencia') {
+      var max = Math.max.apply(null, visibles.map(function (f) { return Math.abs(f.dif); }).concat([0.0001]));
+      var ley = el('div', 'dif-leyenda');
+      ley.appendChild(el('span', null, '◀ Menos incidencias (mejora)'));
+      ley.appendChild(el('span', null, 'Más incidencias (empeora) ▶'));
+      cont.appendChild(ley);
+      visibles.forEach(function (f) {
+        var fila = el('div', 'dif-fila');
+        var nom = el('span', 'nombre', f.nombre);
+        nom.title = f.nombre;
+        fila.appendChild(nom);
+        var eje = el('div', 'dif-eje');
+        eje.title = f.nombre + ': ' + fmt(f.a) + ' → ' + fmt(f.b) + ' (' + f.v.texto + (f.v.cambio ? ', ' + f.v.cambio : '') + ')';
+        var ancho = Math.abs(f.dif) / max * 50;
+        var clase = f.dif < 0 ? 'mejora' : 'empeora';
+        var barra = el('div', 'dif-barra ' + clase);
+        barra.style.width = ancho + '%';
+        if (f.v.clase === 'igual' || f.v.clase === 'pocos') barra.style.background = '#BBBBBB';
+        eje.appendChild(barra);
+        var txt = el('span', 'dif-texto', (f.dif > 0 ? '+' : '') + fmt(f.dif) + (f.v.cambio && f.v.cambio !== 'nuevo' ? ' (' + f.v.cambio + ')' : ''));
+        if (f.dif < 0) txt.style.left = 'calc(50% + 6px)';
+        else txt.style.right = 'calc(50% + 6px)';
+        eje.appendChild(txt);
+        fila.appendChild(eje);
+        cont.appendChild(fila);
+      });
+    } else if (tipo === 'columnas') {
+      var maxV = Math.max.apply(null, visibles.map(function (f) { return Math.max(f.a, f.b); }).concat([0.0001]));
+      var leyenda = el('div', 'leyenda');
+      [['Antes · ' + p.a.nombre, '#9a9890'], ['Ahora · ' + p.b.nombre, '#CE9816']].forEach(function (l) {
+        var s = el('span');
+        var i = el('i');
+        i.style.background = l[1];
+        s.appendChild(i);
+        s.appendChild(document.createTextNode(l[0]));
+        leyenda.appendChild(s);
+      });
+      cont.appendChild(leyenda);
+      visibles.forEach(function (f) {
+        var fila = el('div', 'par-fila');
+        var cab = el('div', 'barra-texto');
+        cab.appendChild(el('span', null, f.nombre));
+        cab.appendChild(etiquetaVeredicto(f.v));
+        fila.appendChild(cab);
+        [['par-a', f.a], ['par-b', f.b]].forEach(function (x) {
+          var b = el('div', 'par-barra ' + x[0]);
+          var i = el('i');
+          i.style.width = 'calc(' + (x[1] / maxV * 100) + '% - 60px)';
+          b.appendChild(i);
+          b.appendChild(el('span', null, fmt(x[1])));
+          fila.appendChild(b);
+        });
+        cont.appendChild(fila);
+      });
+    } else if (tipo === 'calor') {
+      pintarCalor(cont, base, dim, visibles.map(function (f) { return f.k; }), p, porDia);
+    } else {
+      var t = el('table', 'tabla-datos');
+      var cab = el('tr');
+      [[dim.nombre], ['Antes', 'num'], ['Ahora', 'num'], ['Diferencia', 'num'], ['', 'num']].forEach(function (c) { cab.appendChild(el('th', c[1] || null, c[0])); });
+      t.appendChild(cab);
+      filas.forEach(function (f) {
+        var tr = el('tr');
+        tr.appendChild(el('td', null, f.nombre));
+        tr.appendChild(el('td', 'num', fmt(f.a)));
+        tr.appendChild(el('td', 'num', fmt(f.b)));
+        tr.appendChild(el('td', 'num', (f.dif > 0 ? '+' : '') + fmt(f.dif) + (f.v.cambio && f.v.cambio !== 'nuevo' ? ' (' + f.v.cambio + ')' : '')));
+        var td = el('td', 'num');
+        td.appendChild(etiquetaVeredicto(f.v));
+        tr.appendChild(td);
+        t.appendChild(tr);
+      });
+      var cajaTabla = el('div', 'calor-caja');
+      cajaTabla.appendChild(t);
+      cont.appendChild(cajaTabla);
+    }
+
+    var ocultas = filas.length - visibles.length;
+    if (tipo !== 'tabla' && (ocultas > 0 || abierto)) {
+      var mas = el('button', 'enlace', abierto ? 'Ver solo las que más cambian' : 'Ver todas (' + filas.length + ')');
+      mas.type = 'button';
+      mas.addEventListener('click', function () {
+        barrasAbiertas.gMejora = !abierto;
+        pintarMejoraSecciones(base, listaA, listaB, p, porDia);
+      });
+      cont.appendChild(mas);
+    }
+  }
+
+  /** Mapa de calor: filas = valores de la sección, columnas = meses de todo el histórico. */
+  function pintarCalor(cont, base, dim, claves, p, porDia) {
+    var meses = [];
+    var fin = finDatos();
+    for (var k = primerMes(); k <= claveMes(new Date(fin.getTime() - 1)) && meses.length < 36; k = sumarMeses(k, 1)) meses.push(k);
+    var datos = {};
+    var max = 0;
+    meses.forEach(function (km) {
+      var p1 = periodoMeses(km, km);
+      var lista = base.filter(function (i) { return dentro(i, p1); });
+      agrupar(lista, dim).forEach(function (d) {
+        var v = porDia ? (p1.laborables ? d.n / p1.laborables : 0) : d.n;
+        datos[d.k + '|' + km] = { v: v, n: d.n };
+        if (claves.indexOf(d.k) >= 0) max = Math.max(max, v);
+      });
+    });
+    var caja = el('div', 'calor-caja');
+    var t = el('table', 'calor');
+    var cab = el('tr');
+    cab.appendChild(el('th'));
+    meses.forEach(function (km) { cab.appendChild(el('th', null, nombreMes(km, true))); });
+    t.appendChild(cab);
+    var nombres = {};
+    agrupar(base, dim).forEach(function (d) { nombres[d.k] = d.nombre; });
+    claves.forEach(function (kv) {
+      var tr = el('tr');
+      var th = el('th', 'fila', nombres[kv] || kv);
+      th.title = nombres[kv] || kv;
+      tr.appendChild(th);
+      meses.forEach(function (km) {
+        var d = datos[kv + '|' + km] || { v: 0, n: 0 };
+        var td = el('td', null, d.n ? formatoNumero(d.v, porDia ? 1 : 0) : '·');
+        var intensidad = max ? d.v / max : 0;
+        td.style.background = 'rgba(206,152,22,' + (0.08 + intensidad * 0.85).toFixed(2) + ')';
+        td.style.color = intensidad > 0.6 ? '#111111' : '#333333';
+        if (km >= p.a.meses[0] && km <= p.a.meses[1]) td.classList.add('periodo-a');
+        if (km >= p.b.meses[0] && km <= p.b.meses[1]) td.classList.add('periodo-b');
+        td.title = (nombres[kv] || kv) + ' · ' + nombreMes(km) + ': ' + plural(d.n, 'incidencia', 'incidencias');
+        tr.appendChild(td);
+      });
+      t.appendChild(tr);
+    });
+    caja.appendChild(t);
+    cont.appendChild(caja);
+    var nota = el('p', 'nota', (porDia ? 'Incidencias por día laborable. ' : 'Incidencias del mes. ') +
+      'Más oscuro = más incidencias. Raya gris: meses de «Antes»; raya negra: meses de «Ahora».');
+    cont.appendChild(nota);
+  }
+
+  /** Evolución mensual de un indicador en todo el histórico. */
+  function pintarMensual(base) {
+    var cont = $('gMensual');
+    vaciar(cont);
+    var ind = $('mensualIndicador').value;
+    var fin = finDatos();
+    var puntos = [];
+    for (var k = primerMes(); k <= claveMes(new Date(fin.getTime() - 1)) && puntos.length < 36; k = sumarMeses(k, 1)) {
+      var p = periodoMeses(k, k);
+      var m = medir(base.filter(function (i) { return dentro(i, p); }), p);
+      var valor = ind === 'incidencias' ? m.porDia : ind === 'total' ? m.total : ind === 'dias' ? m.dias : ind === 'rapidas' ? m.rapidas : m.graves;
+      var dec = ind === 'total' ? 0 : ind === 'rapidas' || ind === 'graves' ? 0 : 1;
+      puntos.push({
+        nombre: nombreMes(k, true) + (p.recortado ? '*' : ''),
+        largo: nombreMes(k) + (p.recortado ? ' (hasta el último dato)' : ''),
+        valor: valor,
+        texto: valor === null ? '–' : formatoNumero(valor, dec) + (ind === 'rapidas' || ind === 'graves' ? ' %' : ''),
+        abiertas: m.abiertas
+      });
+    }
+    if (!puntos.some(function (pt) { return pt.valor; })) {
+      cont.appendChild(el('p', 'vacio', 'Sin datos con estos filtros.'));
+      return;
+    }
+    var tipo = $('mensualTipo').value;
+    if (tipo === 'tabla') {
+      var t = el('table', 'tabla-datos');
+      var cab = el('tr');
+      cab.appendChild(el('th', null, 'Mes'));
+      cab.appendChild(el('th', 'num', $('mensualIndicador').selectedOptions[0].textContent));
+      cab.appendChild(el('th', 'num', 'Siguen abiertas'));
+      t.appendChild(cab);
+      puntos.forEach(function (pt) {
+        var tr = el('tr');
+        tr.appendChild(el('td', null, pt.largo));
+        tr.appendChild(el('td', 'num', pt.texto));
+        tr.appendChild(el('td', 'num', String(pt.abiertas)));
+        t.appendChild(tr);
+      });
+      cont.appendChild(t);
+    } else {
+      var max = Math.max.apply(null, puntos.map(function (pt) { return pt.valor || 0; }).concat([0.0001]));
+      var caja = el('div', 'evolucion');
+      var cols = el('div', 'cat-columnas');
+      var etiquetas = el('div', 'cat-etiquetas');
+      puntos.forEach(function (pt) {
+        var b = el('div', 'cat-columna');
+        b.title = pt.largo + ': ' + pt.texto;
+        b.style.cursor = 'default';
+        b.appendChild(el('span', 'valor', pt.texto));
+        var r = el('span', 'relleno');
+        r.style.height = ((pt.valor || 0) / max * 85) + '%';
+        if (tipo === 'linea') r.style.background = 'transparent';
+        b.appendChild(r);
+        cols.appendChild(b);
+        etiquetas.appendChild(el('span', null, pt.nombre));
+      });
+      if (tipo === 'linea') {
+        cols.style.position = 'relative';
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('class', 'linea-svg');
+        svg.setAttribute('viewBox', '0 0 100 100');
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.style.top = '18px';
+        svg.style.height = 'calc(100% - 18px)';
+        var pl = document.createElementNS(ns, 'polyline');
+        pl.setAttribute('points', puntos.map(function (pt, i) {
+          return ((i + 0.5) / puntos.length * 100).toFixed(3) + ',' + (100 - (pt.valor || 0) / max * 85).toFixed(3);
+        }).join(' '));
+        pl.setAttribute('fill', 'none');
+        pl.setAttribute('stroke', '#CE9816');
+        pl.setAttribute('stroke-width', '2');
+        pl.setAttribute('vector-effect', 'non-scaling-stroke');
+        pl.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(pl);
+        cols.appendChild(svg);
+      }
+      caja.appendChild(cols);
+      caja.appendChild(etiquetas);
+      cont.appendChild(caja);
+    }
+    var notas = [];
+    if (puntos.some(function (pt) { return /\*$/.test(pt.nombre); })) notas.push('* Mes con datos solo hasta el último día registrado.');
+    if (ind === 'dias' || ind === 'rapidas') notas.push('Solo cuenta las resueltas: en los últimos meses quedan abiertas que, al cerrarse, pueden subir la media.');
+    if (notas.length) cont.appendChild(el('p', 'nota', notas.join(' ')));
   }
 
   // -------------------------------------------------------------------------
